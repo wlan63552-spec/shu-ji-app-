@@ -4,8 +4,7 @@ import {
   Moon, Sun, BarChart2, Search, Star, Image as ImageIcon,
   Quote, Printer, AlignLeft, Library, Download, Upload, Wand2, 
   Camera, Target, SortDesc, Lightbulb, ExternalLink,
-  BrainCircuit, Play, Pause, RotateCcw, Timer, Sparkles, Folder,
-  Smartphone // 新增 PWA 手机安装图标
+  BrainCircuit, Play, Pause, RotateCcw, Timer, Sparkles, Folder
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
@@ -32,6 +31,8 @@ const BOOK_COLORS = [
 const apiKey = ""; // 环境自动注入
 
 const callAI = async (provider, prompt, base64Data = null, mimeType = null) => {
+  // 由于浏览器跨域 (CORS) 限制，直接请求外部 API 会导致 Failed to fetch 错误。
+  // 此处统一使用环境支持的内置模型来模拟不同 AI 的响应风格，并支持原生的 OCR 识图。
   try {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
     
@@ -149,7 +150,7 @@ const parseMarkdown = (text) => {
     .replace(/\*\*(.*?)\*\*/gim, '<strong class="font-bold text-amber-700 dark:text-amber-400">$1</strong>')
     .replace(/\*(.*?)\*/gim, '<em class="italic opacity-90">$1</em>')
     .replace(/^\> (.*$)/gim, '<blockquote class="border-l-4 border-amber-500 pl-4 my-4 italic text-stone-600 dark:text-stone-400 bg-stone-50 dark:bg-stone-800/50 py-2">$1</blockquote>')
-    .replace(/\[\[(.*?)\]\]/gim, '<span class="text-amber-600 cursor-pointer hover:underline font-medium">#$1</span>') 
+    .replace(/\[\[(.*?)\]\]/gim, '<span class="text-amber-600 cursor-pointer hover:underline font-medium">#$1</span>') // 双向链接高亮
     .replace(/\n/gim, '<br />');
   return `<div class="markdown-body leading-loose">${html}</div>`;
 };
@@ -256,89 +257,6 @@ function useBooks(user) {
   return { books, settings, isLoading, saveBook, deleteBook, saveSettings, importBooksData };
 }
 
-// ✨ 新增 Hook：处理 PWA 安装逻辑
-function usePWA() {
-  const [deferredPrompt, setDeferredPrompt] = useState(null);
-
-  useEffect(() => {
-    // 1. 动态生成 PWA Manifest
-    const manifest = {
-      name: "我的云端书房",
-      short_name: "云端书房",
-      description: "记录每一次阅读的感悟与沉淀",
-      start_url: ".",
-      display: "standalone", // 这会让 App 在全屏模式运行，隐藏浏览器地址栏
-      background_color: "#FDFBF7",
-      theme_color: "#d97706",
-      icons: [
-        {
-          src: "https://api.iconify.design/lucide/book-open.svg?color=%23d97706&width=192&height=192",
-          sizes: "192x192",
-          type: "image/svg+xml"
-        },
-        {
-          src: "https://api.iconify.design/lucide/book-open.svg?color=%23d97706&width=512&height=512",
-          sizes: "512x512",
-          type: "image/svg+xml"
-        }
-      ]
-    };
-
-    const stringManifest = JSON.stringify(manifest);
-    const blob = new Blob([stringManifest], {type: 'application/json'});
-    const manifestURL = URL.createObjectURL(blob);
-
-    let manifestLink = document.querySelector('link[rel="manifest"]');
-    if (!manifestLink) {
-      manifestLink = document.createElement('link');
-      manifestLink.rel = 'manifest';
-      document.head.appendChild(manifestLink);
-    }
-    manifestLink.href = manifestURL;
-
-    // 2. 为 iOS 添加 PWA 原生 Meta 标签支持
-    const addMeta = (name, content) => {
-       let meta = document.querySelector(`meta[name="${name}"]`);
-       if (!meta) {
-         meta = document.createElement('meta');
-         meta.name = name;
-         document.head.appendChild(meta);
-       }
-       meta.content = content;
-    };
-    addMeta('apple-mobile-web-app-capable', 'yes');
-    addMeta('apple-mobile-web-app-status-bar-style', 'default');
-    addMeta('apple-mobile-web-app-title', '云端书房');
-
-    // 3. 监听浏览器的可安装事件 (针对 Android/Chrome)
-    const handleBeforeInstallPrompt = (e) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-    };
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    };
-  }, []);
-
-  const installApp = async () => {
-    if (deferredPrompt) {
-      // 触发安装提示
-      deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === 'accepted') {
-        setDeferredPrompt(null); // 安装成功后清空
-      }
-    } else {
-      // 降级提示，指导 iOS 等设备用户手动添加
-      alert("当前环境无法直接安装。\n\n🍎 苹果(iOS)用户：请点击浏览器底部的「分享」图标，然后选择「添加到主屏幕」。\n\n🤖 安卓用户：请点击浏览器右上角菜单，选择「添加到桌面」。");
-    }
-  };
-
-  return { installApp, canInstall: !!deferredPrompt };
-}
-
 // ----------------------------------------------------------------------
 // 组件：番茄钟沉浸模式 (Floating Timer Widget)
 // ----------------------------------------------------------------------
@@ -400,7 +318,7 @@ function FocusTimer() {
 // ----------------------------------------------------------------------
 // 视图组件：书架 (ShelfView)
 // ----------------------------------------------------------------------
-function ShelfView({ books, settings, searchQuery, setSearchQuery, filterStatus, setFilterStatus, sortBy, setSortBy, selectedFolder, setSelectedFolder, isDarkMode, setIsDarkMode, onAddNew, onEdit, onViewStats, onExport, onImport, installApp, canInstall }) {
+function ShelfView({ books, settings, searchQuery, setSearchQuery, filterStatus, setFilterStatus, sortBy, setSortBy, selectedFolder, setSelectedFolder, isDarkMode, setIsDarkMode, onAddNew, onEdit, onViewStats, onExport, onImport }) {
   const fileInputRef = useRef(null);
 
   const filteredAndSortedBooks = useMemo(() => {
@@ -450,13 +368,6 @@ function ShelfView({ books, settings, searchQuery, setSearchQuery, filterStatus,
           <p className="text-stone-500 dark:text-stone-400">记录每一次阅读的感悟与沉淀</p>
         </div>
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-          
-          {/* PWA 桌面安装按钮 */}
-          <button onClick={installApp} className="p-3 rounded-full bg-white dark:bg-stone-800 shadow-sm border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-700 transition-colors relative flex items-center justify-center group" title="添加到手机桌面">
-             <Smartphone className="w-5 h-5 group-hover:text-amber-500 transition-colors" />
-             {canInstall && <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-amber-500 border-2 border-white dark:border-stone-800 rounded-full"></span>}
-          </button>
-
           <div className="hidden sm:flex bg-stone-100 dark:bg-stone-800 rounded-full p-1 border border-stone-200 dark:border-stone-700">
              <button onClick={onExport} className="p-2 text-stone-500 hover:text-stone-900 dark:hover:text-white transition-colors" title="导出数据"><Download className="w-4 h-4" /></button>
              <button onClick={() => fileInputRef.current?.click()} className="p-2 text-stone-500 hover:text-stone-900 dark:hover:text-white transition-colors" title="导入数据"><Upload className="w-4 h-4" /></button>
@@ -1043,9 +954,6 @@ export default function App() {
 
   const { user, authLoading } = useAuth();
   const { books, settings, isLoading, saveBook, deleteBook, saveSettings, importBooksData } = useBooks(user);
-  
-  // 引入 PWA 挂载和逻辑
-  const { installApp, canInstall } = usePWA();
 
   const stats = useMemo(() => ({
     total: books.length,
@@ -1102,8 +1010,6 @@ export default function App() {
             onAddNew={handleAddNew} onEdit={(book) => { setEditingBook(book); setEditorTab('notes'); setCurrentView('editor'); }}
             onViewStats={() => setCurrentView('stats')}
             onExport={handleExport} onImport={importBooksData}
-            // 传递 PWA 方法
-            installApp={installApp} canInstall={canInstall}
           />
         )}
 
