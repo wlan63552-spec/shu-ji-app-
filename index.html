@@ -1,1037 +1,341 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import {
-  Book, Plus, ChevronLeft, Save, Trash2, BookOpen,
-  Moon, Sun, BarChart2, Search, Star, Image as ImageIcon,
-  Quote, Printer, AlignLeft, Library, Download, Upload, Wand2, 
-  Camera, Target, SortDesc, Lightbulb, ExternalLink,
-  BrainCircuit, Play, Pause, RotateCcw, Timer, Sparkles, Folder
-} from 'lucide-react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc, getDoc } from 'firebase/firestore';
-
-// ----------------------------------------------------------------------
-// Firebase 初始化
-// ----------------------------------------------------------------------
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-const BOOK_COLORS = [
-  'bg-red-800', 'bg-blue-800', 'bg-emerald-800',
-  'bg-amber-700', 'bg-purple-800', 'bg-stone-800',
-  'bg-teal-700', 'bg-indigo-800', 'bg-rose-800'
-];
-
-// ----------------------------------------------------------------------
-// AI 大模型服务 
-// ----------------------------------------------------------------------
-const apiKey = ""; // 环境自动注入
-
-const callAI = async (provider, prompt, base64Data = null, mimeType = null) => {
-  // 由于浏览器跨域 (CORS) 限制，直接请求外部 API 会导致 Failed to fetch 错误。
-  // 此处统一使用环境支持的内置模型来模拟不同 AI 的响应风格，并支持原生的 OCR 识图。
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>我的云端书房 - 个人读书笔记</title>
     
-    let systemPrompt = '你是一个专业的读书笔记助手。';
-    if (provider === 'deepseek') {
-      systemPrompt += '请模仿 DeepSeek 的风格，提供逻辑严密、深刻的总结。';
-    } else if (provider === 'doubao') {
-      systemPrompt += '请模仿豆包的风格，提供亲切自然、通俗易懂的总结。';
-    }
-
-    const parts = [{ text: prompt }];
+    <!-- PWA 与 移动端优化标签 -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="云端书房">
+    <link rel="apple-touch-icon" href="https://api.iconify.design/lucide/book-open.svg?color=%23d97706">
     
-    if (base64Data && mimeType) {
-      parts.push({
-        inlineData: {
-          mimeType: mimeType,
-          data: base64Data
-        }
-      });
-    }
-
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts }],
-        systemInstruction: { parts: [{ text: systemPrompt }] }
-      })
-    });
-
-    if (!response.ok) {
-       throw new Error(`API Error: ${response.status}`);
-    }
-
-    const result = await response.json();
-    return result.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  } catch (error) {
-    console.error("AI Request Error:", error);
-    throw new Error("网络请求失败，请稍后重试");
-  }
-};
-
-// ----------------------------------------------------------------------
-// 工具函数
-// ----------------------------------------------------------------------
-const downloadPoster = (quote, title, author) => {
-  const canvas = document.createElement('canvas');
-  canvas.width = 1080;
-  canvas.height = 1080;
-  const ctx = canvas.getContext('2d');
-
-  ctx.fillStyle = '#1c1917'; 
-  ctx.fillRect(0, 0, 1080, 1080);
-  ctx.fillStyle = '#d97706'; 
-  ctx.fillRect(100, 120, 12, 80);
-  ctx.fillStyle = '#78716c'; 
-  ctx.font = '32px sans-serif';
-  ctx.fillText('READING QUOTES', 140, 175);
-
-  ctx.fillStyle = '#f5f5f4'; 
-  ctx.font = 'italic 48px serif';
-  const text = quote || '静下心来，读一本好书。';
-  let line = '';
-  let y = 320;
-  const maxWidth = 880;
-
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-    if (char === '\n') {
-       ctx.fillText(line, 100, y);
-       line = '';
-       y += 70;
-       continue;
-    }
-    const testLine = line + char;
-    if (ctx.measureText(testLine).width > maxWidth && i > 0) {
-      ctx.fillText(line, 100, y);
-      line = char;
-      y += 70;
-    } else {
-      line = testLine;
-    }
-  }
-  ctx.fillText(line, 100, y);
-
-  y += 150;
-  ctx.fillStyle = '#d97706';
-  ctx.font = 'bold 36px sans-serif';
-  ctx.fillText(`—— 《${title || '未命名书籍'}》`, 90, y);
-  
-  ctx.fillStyle = '#a8a29e';
-  ctx.font = '32px sans-serif';
-  ctx.fillText(author || '佚名', 150, y + 60);
-
-  ctx.fillStyle = '#292524'; 
-  ctx.fillRect(0, 960, 1080, 120);
-  ctx.fillStyle = '#78716c';
-  ctx.font = '24px sans-serif';
-  ctx.fillText('Generated by 我的云端书房', 100, 1025);
-
-  const link = document.createElement('a');
-  link.download = `摘抄海报_${title || '书籍'}.png`;
-  link.href = canvas.toDataURL('image/png');
-  link.click();
-};
-
-const parseMarkdown = (text) => {
-  if (!text) return '<p class="text-stone-400">暂无内容...</p>';
-  let html = text
-    .replace(/^### (.*$)/gim, '<h3 class="text-xl font-bold mt-6 mb-3 text-stone-900 dark:text-stone-100">$1</h3>')
-    .replace(/^## (.*$)/gim, '<h2 class="text-2xl font-bold mt-8 mb-4 text-stone-900 dark:text-stone-100">$1</h2>')
-    .replace(/^# (.*$)/gim, '<h1 class="text-3xl font-bold mt-10 mb-5 text-stone-900 dark:text-stone-100">$1</h1>')
-    .replace(/\*\*(.*?)\*\*/gim, '<strong class="font-bold text-amber-700 dark:text-amber-400">$1</strong>')
-    .replace(/\*(.*?)\*/gim, '<em class="italic opacity-90">$1</em>')
-    .replace(/^\> (.*$)/gim, '<blockquote class="border-l-4 border-amber-500 pl-4 my-4 italic text-stone-600 dark:text-stone-400 bg-stone-50 dark:bg-stone-800/50 py-2">$1</blockquote>')
-    .replace(/\[\[(.*?)\]\]/gim, '<span class="text-amber-600 cursor-pointer hover:underline font-medium">#$1</span>') // 双向链接高亮
-    .replace(/\n/gim, '<br />');
-  return `<div class="markdown-body leading-loose">${html}</div>`;
-};
-
-// ----------------------------------------------------------------------
-// 自定义 Hooks
-// ----------------------------------------------------------------------
-function useAuth() {
-  const [user, setUser] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
-
-  useEffect(() => {
-    const init = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (error) {
-        console.error("Auth error:", error);
-        setAuthLoading(false);
-      }
-    };
-    init();
-
-    const unsub = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setAuthLoading(false);
-    });
-    return () => unsub();
-  }, []);
-
-  return { user, authLoading };
-}
-
-function useBooks(user) {
-  const [books, setBooks] = useState([]);
-  const [settings, setSettings] = useState({ yearlyGoal: 10, folders: ['默认书单'] });
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    if (!user) {
-      setIsLoading(false);
-      return;
-    }
-    const booksRef = collection(db, 'artifacts', appId, 'users', user.uid, 'books');
-    const unsub = onSnapshot(booksRef, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setBooks(data);
-      setIsLoading(false);
-    }, (error) => {
-      console.error("Error fetching books:", error);
-      setIsLoading(false);
-    });
-    return () => unsub();
-  }, [user]);
-
-  useEffect(() => {
-    if (!user) return;
-    const fetchSettings = async () => {
-      const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile');
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        setSettings(prev => ({ ...prev, ...docSnap.data() }));
-      }
-    };
-    fetchSettings();
-  }, [user]);
-
-  const saveBook = useCallback(async (book) => {
-    if (!user) return;
-    const booksRef = collection(db, 'artifacts', appId, 'users', user.uid, 'books');
-    const docRef = book.id ? doc(booksRef, book.id) : doc(booksRef);
-    const payload = {
-      ...book,
-      title: book.title || '未命名书籍',
-      author: book.author || '未知作者',
-      updatedAt: Date.now(),
-    };
-    if (!book.id) payload.createdAt = Date.now();
-    await setDoc(docRef, payload, { merge: true });
-  }, [user]);
-
-  const deleteBook = useCallback(async (id) => {
-    if (!user) return;
-    await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'books', id));
-  }, [user]);
-
-  const saveSettings = useCallback(async (newSettings) => {
-    if (!user) return;
-    const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'profile');
-    await setDoc(docRef, newSettings, { merge: true });
-    setSettings(prev => ({ ...prev, ...newSettings }));
-  }, [user]);
-
-  const importBooksData = useCallback(async (importedBooks) => {
-    if (!user) return;
-    for (const book of importedBooks) {
-      await saveBook(book);
-    }
-  }, [user, saveBook]);
-
-  return { books, settings, isLoading, saveBook, deleteBook, saveSettings, importBooksData };
-}
-
-// ----------------------------------------------------------------------
-// 组件：番茄钟沉浸模式 (Floating Timer Widget)
-// ----------------------------------------------------------------------
-function FocusTimer() {
-  const [isOpen, setIsOpen] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(25 * 60);
-  const [isActive, setIsActive] = useState(false);
-
-  useEffect(() => {
-    let interval = null;
-    if (isActive && timeLeft > 0) {
-      interval = setInterval(() => setTimeLeft(t => t - 1), 1000);
-    } else if (timeLeft === 0) {
-      setIsActive(false);
-      alert("专注时间结束！休息一下吧。");
-    }
-    return () => clearInterval(interval);
-  }, [isActive, timeLeft]);
-
-  const toggleTimer = () => setIsActive(!isActive);
-  const resetTimer = () => { setIsActive(false); setTimeLeft(25 * 60); };
-
-  const minutes = Math.floor(timeLeft / 60).toString().padStart(2, '0');
-  const seconds = (timeLeft % 60).toString().padStart(2, '0');
-
-  return (
-    <div className="fixed bottom-6 right-6 z-50 no-print">
-      {isOpen ? (
-        <div className="bg-white/90 dark:bg-stone-800/90 backdrop-blur-xl p-5 rounded-3xl shadow-2xl border border-stone-200 dark:border-stone-700 w-64 transition-all animate-in slide-in-from-bottom-5">
-          <div className="flex justify-between items-center mb-4">
-            <h4 className="font-bold text-stone-800 dark:text-stone-200 flex items-center">
-              <Timer className="w-4 h-4 mr-2 text-amber-500" /> 沉浸阅读
-            </h4>
-            <button onClick={() => setIsOpen(false)} className="text-stone-400 hover:text-stone-600 dark:hover:text-stone-200">
-               <ChevronLeft className="w-5 h-5 -rotate-90" />
-            </button>
-          </div>
-          <div className="text-center font-mono text-5xl font-light text-amber-600 dark:text-amber-400 mb-6 tracking-tighter">
-            {minutes}:{seconds}
-          </div>
-          <div className="flex justify-center space-x-4">
-            <button onClick={toggleTimer} className="p-3 bg-stone-900 text-white rounded-full hover:bg-stone-700 transition-transform hover:scale-105 active:scale-95 shadow-md">
-              {isActive ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-1" />}
-            </button>
-            <button onClick={resetTimer} className="p-3 bg-stone-100 dark:bg-stone-700 text-stone-600 dark:text-stone-300 rounded-full hover:bg-stone-200 dark:hover:bg-stone-600 transition-transform hover:scale-105 active:scale-95">
-              <RotateCcw className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-      ) : (
-        <button onClick={() => setIsOpen(true)} className="bg-amber-500 text-white p-4 rounded-full shadow-lg hover:bg-amber-600 hover:shadow-xl transition-all transform hover:-translate-y-1 group">
-          <Timer className="w-6 h-6 group-hover:animate-pulse" />
-        </button>
-      )}
-    </div>
-  );
-}
-
-// ----------------------------------------------------------------------
-// 视图组件：书架 (ShelfView)
-// ----------------------------------------------------------------------
-function ShelfView({ books, settings, searchQuery, setSearchQuery, filterStatus, setFilterStatus, sortBy, setSortBy, selectedFolder, setSelectedFolder, isDarkMode, setIsDarkMode, onAddNew, onEdit, onViewStats, onExport, onImport }) {
-  const fileInputRef = useRef(null);
-
-  const filteredAndSortedBooks = useMemo(() => {
-    let result = books.filter(book => {
-      const matchSearch = (book.title?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
-                          (book.author?.toLowerCase() || '').includes(searchQuery.toLowerCase());
-      const effectiveStatus = book.status || 'unread';
-      const matchStatus = filterStatus === 'all' || effectiveStatus === filterStatus;
-      const matchFolder = selectedFolder === 'all' || (book.folder || '默认书单') === selectedFolder;
-      return matchSearch && matchStatus && matchFolder;
-    });
-
-    result.sort((a, b) => {
-      if (sortBy === 'rating') return (b.rating || 0) - (a.rating || 0);
-      if (sortBy === 'title') return (a.title || '').localeCompare(b.title || '');
-      return (b.updatedAt || 0) - (a.updatedAt || 0);
-    });
-
-    return result;
-  }, [books, searchQuery, filterStatus, sortBy, selectedFolder]);
-
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const data = JSON.parse(evt.target.result);
-        if (Array.isArray(data)) {
-          onImport(data);
-          alert(`成功导入 ${data.length} 本书！`);
-        } else {
-          alert('文件格式错误！');
-        }
-      } catch (err) {
-        alert('解析失败，请确保是有效的 JSON 文件。');
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-        <div>
-          <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-stone-900 dark:text-stone-100 mb-2">我的书房</h1>
-          <p className="text-stone-500 dark:text-stone-400">记录每一次阅读的感悟与沉淀</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-          <div className="hidden sm:flex bg-stone-100 dark:bg-stone-800 rounded-full p-1 border border-stone-200 dark:border-stone-700">
-             <button onClick={onExport} className="p-2 text-stone-500 hover:text-stone-900 dark:hover:text-white transition-colors" title="导出数据"><Download className="w-4 h-4" /></button>
-             <button onClick={() => fileInputRef.current?.click()} className="p-2 text-stone-500 hover:text-stone-900 dark:hover:text-white transition-colors" title="导入数据"><Upload className="w-4 h-4" /></button>
-             <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".json" className="hidden" />
-          </div>
-
-          <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-3 rounded-full bg-white dark:bg-stone-800 shadow-sm border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-700 transition-colors" title="切换深色模式">
-            {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-          </button>
-          <button onClick={onViewStats} className="p-3 rounded-full bg-white dark:bg-stone-800 shadow-sm border border-stone-200 dark:border-stone-700 text-stone-600 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-700 transition-colors" title="阅读成就看板">
-            <Target className="w-5 h-5" />
-          </button>
-          <button onClick={onAddNew} className="flex-1 sm:flex-none flex items-center justify-center space-x-2 bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 px-5 py-3 rounded-full hover:bg-stone-800 dark:hover:bg-white transition-transform hover:scale-105 active:scale-95 shadow-md font-medium">
-            <Plus className="w-5 h-5" />
-            <span>添加新书</span>
-          </button>
-        </div>
-      </header>
-
-      {/* 文件夹 (书单) 导航 */}
-      {books.length > 0 && (
-        <div className="flex overflow-x-auto hide-scrollbar space-x-2 mb-6 pb-2">
-          <button 
-            onClick={() => setSelectedFolder('all')}
-            className={`whitespace-nowrap px-4 py-2 rounded-full text-sm font-medium transition-colors ${selectedFolder === 'all' ? 'bg-stone-800 text-white dark:bg-white dark:text-stone-900' : 'bg-stone-100 text-stone-600 hover:bg-stone-200 dark:bg-stone-800 dark:text-stone-300'}`}
-          >
-            全部书籍 ({books.length})
-          </button>
-          {(settings.folders || ['默认书单']).map(folder => (
-            <button 
-              key={folder}
-              onClick={() => setSelectedFolder(folder)}
-              className={`whitespace-nowrap px-4 py-2 rounded-full text-sm font-medium transition-colors flex items-center ${selectedFolder === folder ? 'bg-amber-600 text-white' : 'bg-stone-100 text-stone-600 hover:bg-stone-200 dark:bg-stone-800 dark:text-stone-300'}`}
-            >
-              <Folder className="w-3 h-3 mr-1.5" /> {folder}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {books.length > 0 && (
-        <div className="flex flex-col lg:flex-row gap-4 mb-10 bg-white dark:bg-stone-800 p-2 sm:p-4 rounded-3xl shadow-sm border border-stone-200 dark:border-stone-700">
-          <div className="relative flex-1">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400" />
-            <input
-              type="text"
-              placeholder="搜索书名、作者或 #标签..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-11 pr-4 py-3 rounded-2xl bg-stone-50 dark:bg-stone-900 border-none focus:outline-none focus:ring-2 focus:ring-amber-500/50 dark:text-stone-200 transition-all"
-            />
-          </div>
-          <div className="flex gap-2 w-full lg:w-auto">
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              className="flex-1 lg:flex-none px-4 py-3 rounded-2xl bg-stone-50 dark:bg-stone-900 border-none focus:outline-none focus:ring-2 focus:ring-amber-500/50 dark:text-stone-200 cursor-pointer min-w-[120px]"
-            >
-              <option value="all">全部状态</option>
-              <option value="unread">想读</option>
-              <option value="reading">在读</option>
-              <option value="read">已读</option>
-            </select>
-            <div className="relative flex-1 lg:flex-none">
-               <SortDesc className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
-               <select
-                 value={sortBy}
-                 onChange={(e) => setSortBy(e.target.value)}
-                 className="w-full pl-10 pr-4 py-3 rounded-2xl bg-stone-50 dark:bg-stone-900 border-none focus:outline-none focus:ring-2 focus:ring-amber-500/50 dark:text-stone-200 cursor-pointer min-w-[140px]"
-               >
-                 <option value="recent">最近更新</option>
-                 <option value="rating">评分最高</option>
-                 <option value="title">按书名</option>
-               </select>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 书籍展示 */}
-      {books.length === 0 ? (
-        <div className="text-center py-24 bg-white dark:bg-stone-800/50 rounded-3xl border border-stone-200 dark:border-stone-700 shadow-sm">
-          <Book className="w-16 h-16 text-stone-300 dark:text-stone-600 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-stone-900 dark:text-stone-100 mb-2">书架空空如也</h3>
-          <p className="text-stone-500 dark:text-stone-400 mb-6">开始记录你的第一本读书笔记吧</p>
-          <button onClick={onAddNew} className="text-stone-900 dark:text-stone-100 font-medium hover:text-amber-700 dark:hover:text-amber-400 underline underline-offset-4">
-            写点什么
-          </button>
-        </div>
-      ) : filteredAndSortedBooks.length === 0 ? (
-        <div className="text-center py-24"><p className="text-stone-500">没有找到匹配的书籍。</p></div>
-      ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6">
-          {filteredAndSortedBooks.map(book => (
-            <div key={book.id} onClick={() => onEdit(book)} className="group cursor-pointer flex flex-col h-full">
-              <div className={`
-                aspect-[2/3] ${book.coverUrl ? 'bg-stone-100' : book.color} rounded-r-xl rounded-l-md shadow-md 
-                relative overflow-hidden mb-3 transition-all duration-300 group-hover:-translate-y-2 group-hover:shadow-xl
-                border-l-4 border-white/20 dark:border-white/10
-              `}>
-                {book.coverUrl ? (
-                  <img src={book.coverUrl} alt={book.title} className="w-full h-full object-cover" />
-                ) : (
-                  <div className="absolute inset-0 p-4 flex flex-col">
-                    <div className="mt-auto">
-                      <h3 className="text-white font-bold leading-tight line-clamp-3 mb-1 text-shadow-sm">{book.title}</h3>
-                      <p className="text-white/70 text-xs font-medium line-clamp-1">{book.author}</p>
-                    </div>
-                  </div>
-                )}
-                <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
-                  <span className={`text-[10px] px-2 py-1 rounded-full font-bold ${
-                    book.status === 'read' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400' :
-                    book.status === 'reading' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400' :
-                    'bg-stone-200 text-stone-600 dark:bg-stone-700 dark:text-stone-300'
-                  }`}>
-                    {book.status === 'read' ? '已读' : book.status === 'reading' ? '在读' : '想读'}
-                  </span>
-                </div>
-              </div>
-              <div className="px-1">
-                <h4 className="font-semibold text-stone-800 dark:text-stone-200 text-sm truncate" title={book.title}>{book.title || '未命名'}</h4>
-                {book.rating > 0 && (
-                  <div className="mt-1 flex items-center">
-                    <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-                    <span className="text-xs text-stone-500 dark:text-stone-400 ml-1">{book.rating}.0</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ----------------------------------------------------------------------
-// 视图组件：编辑器 (EditorView) - 包含 AI 和 OCR
-// ----------------------------------------------------------------------
-function EditorView({ book, setEditingBook, settings, saveSettings, onBack, onSave, onDelete, editorTab, setEditorTab, handlePrint }) {
-  const [isPreviewMode, setIsPreviewMode] = useState(false);
-  const [isFetchingInfo, setIsFetchingInfo] = useState(false);
-  const [isAiLoading, setIsAiLoading] = useState(false);
-  const [isOcrLoading, setIsOcrLoading] = useState(false);
-  const [aiProvider, setAiProvider] = useState('deepseek'); 
-  const fileInputRef = useRef(null);
-
-  if (!book) return null;
-
-  // 1. 联网获取
-  const handleAutoFetch = async () => {
-    if (!book.title) return alert("请先输入书名！");
-    setIsFetchingInfo(true);
-    try {
-      const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=intitle:${encodeURIComponent(book.title)}&maxResults=1`);
-      const data = await res.json();
-      if (data.items && data.items.length > 0) {
-        const info = data.items[0].volumeInfo;
-        setEditingBook(prev => ({
-          ...prev,
-          title: info.title || prev.title,
-          author: info.authors ? info.authors.join(', ') : prev.author,
-          coverUrl: info.imageLinks ? (info.imageLinks.thumbnail || info.imageLinks.smallThumbnail).replace('http:', 'https:') : prev.coverUrl,
-          tags: info.categories ? info.categories.join(', ') : prev.tags
-        }));
-      } else {
-        alert("未找到相关书籍。");
-      }
-    } catch (err) {
-      alert("网络请求失败。");
-    } finally {
-      setIsFetchingInfo(false);
-    }
-  };
-
-  // 2. AI 总结功能
-  const handleAiSummarize = async () => {
-    if (!book.content || book.content.length < 50) return alert("笔记内容太少，先多写一点再让 AI 总结吧！");
-    setIsAiLoading(true);
-    try {
-      const prompt = `以下是我对《${book.title}》的读书笔记。请帮我提炼出3-5点核心思想总结，使用 Markdown 格式（使用加粗、列表等），并用温暖鼓励的语气：\n\n${book.content}`;
-      const aiResponse = await callAI(aiProvider, prompt);
-      
-      const aiSignature = aiProvider === 'deepseek' ? 'DeepSeek' : '豆包 (Doubao)';
-      setEditingBook(prev => ({
-        ...prev,
-        content: prev.content + `\n\n---\n\n### ✨ ${aiSignature} 智能总结\n` + aiResponse
-      }));
-    } catch (error) {
-      alert("AI 生成失败: " + error.message);
-    } finally {
-      setIsAiLoading(false);
-    }
-  };
-
-  // 3. OCR 拍照提取功能
-  const handleOcrUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    <!-- 引入样式与脚本依赖 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
     
-    setIsOcrLoading(true);
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-      try {
-        const base64Data = evt.target.result.split(',')[1];
-        const mimeType = file.type;
-        const prompt = "请精确提取这张图片中的所有文字内容，不要添加任何多余的解释、前言或格式，纯文本返回。";
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { 
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+            -webkit-tap-highlight-color: transparent;
+        }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         
-        const extractedText = await callAI(aiProvider, prompt, base64Data, mimeType);
-        setEditingBook(prev => ({
-          ...prev,
-          quotes: prev.quotes ? prev.quotes + "\n\n" + extractedText : extractedText
-        }));
-      } catch (error) {
-        alert(error.message || "文字识别失败，请确保图片清晰或稍后再试。");
-      } finally {
-        setIsOcrLoading(false);
-        e.target.value = null; // reset input
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  // 添加新书单/文件夹
-  const handleAddFolder = () => {
-    const newFolder = prompt("请输入新书单名称：");
-    if (newFolder && !settings.folders?.includes(newFolder)) {
-      saveSettings({ folders: [...(settings.folders || ['默认书单']), newFolder] });
-      setEditingBook({ ...book, folder: newFolder });
-    }
-  };
-
-  return (
-    <div className="max-w-4xl mx-auto bg-white dark:bg-[#232323] min-h-screen shadow-2xl sm:my-8 sm:rounded-2xl sm:min-h-[85vh] overflow-hidden flex flex-col border border-stone-100 dark:border-stone-800">
-      
-      {/* 顶部导航 */}
-      <div className="sticky top-0 bg-white/80 dark:bg-[#232323]/80 backdrop-blur-md border-b border-stone-100 dark:border-stone-800 px-4 sm:px-8 py-4 flex justify-between items-center z-20 no-print">
-        <button type="button" onClick={onBack} className="flex items-center text-stone-500 hover:text-stone-900 dark:hover:text-white transition-colors">
-          <ChevronLeft className="w-5 h-5 mr-1" /> 返回
-        </button>
-
-        <div className="hidden md:flex bg-stone-100 dark:bg-stone-800 p-1 rounded-lg">
-          <button onClick={() => setEditorTab('notes')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${editorTab === 'notes' ? 'bg-white dark:bg-stone-600 shadow-sm text-stone-900 dark:text-white' : 'text-stone-500'}`}><AlignLeft className="w-4 h-4" /> 读书笔记</button>
-          <button onClick={() => setEditorTab('quotes')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${editorTab === 'quotes' ? 'bg-white dark:bg-stone-600 shadow-sm text-stone-900 dark:text-white' : 'text-stone-500'}`}><Quote className="w-4 h-4" /> 金句摘抄</button>
-          <button onClick={() => setEditorTab('info')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${editorTab === 'info' ? 'bg-white dark:bg-stone-600 shadow-sm text-stone-900 dark:text-white' : 'text-stone-500'}`}><Library className="w-4 h-4" /> 书籍设置</button>
-          <button onClick={() => setEditorTab('inspiration')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${editorTab === 'inspiration' ? 'bg-white dark:bg-stone-600 shadow-sm text-stone-900 dark:text-white' : 'text-stone-500'}`}><Lightbulb className="w-4 h-4" /> 寻找灵感</button>
-        </div>
-
-        <div className="flex items-center space-x-1 sm:space-x-2">
-          {editorTab === 'quotes' && (
-            <button onClick={() => downloadPoster(book.quotes, book.title, book.author)} className="hidden sm:flex items-center text-xs bg-stone-900 text-white px-3 py-1.5 rounded-full hover:bg-stone-700 transition-colors mr-2">
-              <Camera className="w-3 h-3 mr-1" /> 生成海报
-            </button>
-          )}
-          <button onClick={handlePrint} className="p-2 text-stone-400 hover:text-stone-900 dark:hover:text-white transition-colors"><Printer className="w-5 h-5" /></button>
-          {book.id && <button onClick={() => onDelete(book.id)} className="p-2 text-stone-400 hover:text-red-600 transition-colors"><Trash2 className="w-5 h-5" /></button>}
-          <button onClick={onSave} className="flex items-center space-x-1 bg-amber-100 dark:bg-amber-900 text-amber-900 dark:text-amber-100 px-4 py-2 rounded-full hover:bg-amber-200 transition-colors font-medium ml-2"><Save className="w-4 h-4" /><span>保存</span></button>
-        </div>
-      </div>
-
-      <div className="flex md:hidden border-b border-stone-100 dark:border-stone-800 no-print overflow-x-auto hide-scrollbar">
-        <button onClick={() => setEditorTab('notes')} className={`px-6 py-3 whitespace-nowrap text-sm font-medium ${editorTab === 'notes' ? 'text-amber-600 border-b-2 border-amber-600' : 'text-stone-500'}`}>笔记</button>
-        <button onClick={() => setEditorTab('quotes')} className={`px-6 py-3 whitespace-nowrap text-sm font-medium ${editorTab === 'quotes' ? 'text-amber-600 border-b-2 border-amber-600' : 'text-stone-500'}`}>摘抄</button>
-        <button onClick={() => setEditorTab('info')} className={`px-6 py-3 whitespace-nowrap text-sm font-medium ${editorTab === 'info' ? 'text-amber-600 border-b-2 border-amber-600' : 'text-stone-500'}`}>属性</button>
-        <button onClick={() => setEditorTab('inspiration')} className={`px-6 py-3 whitespace-nowrap text-sm font-medium ${editorTab === 'inspiration' ? 'text-amber-600 border-b-2 border-amber-600' : 'text-stone-500'}`}>灵感</button>
-      </div>
-
-      {/* 编辑区正文 */}
-      <div className="flex-1 p-6 sm:p-10 overflow-y-auto">
-        <div className="mb-8 relative group no-print">
-          <input
-            type="text" placeholder="输入书名..." value={book.title || ''}
-            onChange={(e) => setEditingBook({...book, title: e.target.value})}
-            className="text-3xl sm:text-4xl font-bold text-stone-900 dark:text-stone-100 placeholder-stone-300 dark:placeholder-stone-600 border-none outline-none bg-transparent w-full mb-2 focus:ring-0"
-          />
-          <div className="flex items-center">
-            <input
-              type="text" placeholder="作者是谁？" value={book.author || ''}
-              onChange={(e) => setEditingBook({...book, author: e.target.value})}
-              className="text-lg text-stone-500 dark:text-stone-400 placeholder-stone-300 border-none outline-none bg-transparent flex-1 font-medium focus:ring-0"
-            />
-            {editorTab === 'info' && (
-              <button onClick={handleAutoFetch} disabled={isFetchingInfo} className="text-xs flex items-center bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 px-3 py-1.5 rounded-full hover:bg-blue-100 transition-colors ml-4 shrink-0">
-                <Wand2 className="w-3 h-3 mr-1" /> {isFetchingInfo ? '获取中...' : '联网智能补全'}
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* 笔记区 (AI 总结 + Markdown) */}
-        <div className={editorTab === 'notes' ? 'block' : 'hidden print:block'}>
-          <div className="flex justify-between items-center mb-4 border-b border-stone-100 dark:border-stone-800 pb-2 no-print">
-             <div className="flex items-center space-x-3">
-               
-               {/* AI 模型切换器 */}
-               <div className="flex items-center bg-stone-100 dark:bg-stone-800 rounded-md p-0.5 border border-stone-200 dark:border-stone-700">
-                 <select 
-                   value={aiProvider} 
-                   onChange={(e) => setAiProvider(e.target.value)}
-                   className="text-xs bg-transparent border-none outline-none text-stone-600 dark:text-stone-300 py-1 pl-2 pr-1 cursor-pointer font-medium"
-                 >
-                   <option value="deepseek">DeepSeek</option>
-                   <option value="doubao">豆包</option>
-                 </select>
-               </div>
-
-               <button onClick={handleAiSummarize} disabled={isAiLoading} className="text-xs flex items-center bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 px-3 py-1.5 rounded-md hover:bg-purple-100 transition-colors">
-                  {isAiLoading ? <Sparkles className="w-3 h-3 mr-1 animate-spin" /> : <BrainCircuit className="w-3 h-3 mr-1" />}
-                  {isAiLoading ? 'AI 正在思考...' : 'AI 智能总结'}
-               </button>
-               <span className="text-xs text-stone-400 hidden sm:inline-block">支持 Markdown 语法与 [[双向链接]]</span>
-             </div>
-             
-             <div className="flex bg-stone-100 dark:bg-stone-800 rounded-lg p-0.5">
-               <button onClick={() => setIsPreviewMode(false)} className={`px-3 py-1 text-xs font-medium rounded-md ${!isPreviewMode ? 'bg-white dark:bg-stone-600 shadow-sm text-stone-900 dark:text-white' : 'text-stone-500'}`}>编辑</button>
-               <button onClick={() => setIsPreviewMode(true)} className={`px-3 py-1 text-xs font-medium rounded-md ${isPreviewMode ? 'bg-white dark:bg-stone-600 shadow-sm text-stone-900 dark:text-white' : 'text-stone-500'}`}>预览</button>
-             </div>
-          </div>
-          
-          {isPreviewMode ? (
-            <div className="min-h-[50vh] prose dark:prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: parseMarkdown(book.content) }} />
-          ) : (
-            <textarea
-              placeholder="在这里写下你的读书笔记...支持 # 标题、**加粗**、> 引用等 Markdown 格式"
-              value={book.content || ''}
-              onChange={(e) => setEditingBook({...book, content: e.target.value})}
-              className="w-full min-h-[50vh] resize-y border-none outline-none bg-transparent text-stone-800 dark:text-stone-300 leading-loose text-lg font-serif focus:ring-0 placeholder-stone-200 dark:placeholder-stone-700"
-            ></textarea>
-          )}
-        </div>
-
-        {/* 摘抄区 (OCR 拍照识别) */}
-        <div className={editorTab === 'quotes' ? 'block' : 'hidden print:block'}>
-          <div className="flex justify-end mb-2 no-print">
-             <button onClick={() => fileInputRef.current?.click()} disabled={isOcrLoading} className="text-xs flex items-center bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 px-3 py-1.5 rounded-md hover:bg-indigo-100 transition-colors">
-                {isOcrLoading ? <Sparkles className="w-3 h-3 mr-1 animate-spin" /> : <Camera className="w-3 h-3 mr-1" />}
-                {isOcrLoading ? '识别中...' : '拍照提取文字 (OCR)'}
-             </button>
-             <input type="file" accept="image/*" ref={fileInputRef} onChange={handleOcrUpload} className="hidden" />
-          </div>
-          <div className="relative mt-2">
-            <Quote className="absolute top-0 left-0 w-12 h-12 rotate-180 opacity-50 text-stone-200 dark:text-stone-700 no-print" />
-            <textarea
-              placeholder="遇到触动人心的句子，把它摘抄在这里..."
-              value={book.quotes || ''}
-              onChange={(e) => setEditingBook({...book, quotes: e.target.value})}
-              className="w-full min-h-[50vh] pl-10 pt-4 resize-y border-none outline-none bg-transparent text-stone-700 dark:text-stone-400 leading-relaxed text-xl font-serif italic focus:ring-0 placeholder-stone-200 dark:placeholder-stone-700"
-            ></textarea>
-          </div>
-          <button onClick={() => downloadPoster(book.quotes, book.title, book.author)} className="sm:hidden w-full mt-4 flex justify-center items-center text-sm bg-stone-900 text-white px-4 py-3 rounded-xl shadow-lg">
-             <Camera className="w-4 h-4 mr-2" /> 生成并下载金句海报
-          </button>
-        </div>
-
-        {/* 属性区 */}
-        <div className={`${editorTab === 'info' ? 'block' : 'hidden'} space-y-6 max-w-2xl no-print`}>
-          <div className="bg-stone-50 dark:bg-stone-800/50 p-6 rounded-2xl border border-stone-100 dark:border-stone-800">
-            <h3 className="text-sm font-bold text-stone-400 dark:text-stone-500 uppercase tracking-wider mb-4">阅读状态与书单</h3>
-            <div className="grid grid-cols-3 gap-3 mb-6">
-              {['unread', 'reading', 'read'].map((status) => (
-                <button
-                  key={status}
-                  onClick={() => setEditingBook({...book, status})}
-                  className={`py-2 rounded-xl text-sm font-medium transition-all border ${
-                    (book.status || 'unread') === status
-                      ? 'border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                      : 'border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-600 dark:text-stone-400'
-                  }`}
-                >
-                  {status === 'unread' && '想读'}
-                  {status === 'reading' && '在读'}
-                  {status === 'read' && '已读完'}
-                </button>
-              ))}
-            </div>
-
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-stone-600 dark:text-stone-400 mb-2 flex justify-between items-center">
-                <span>所属书单/文件夹</span>
-                <button onClick={handleAddFolder} className="text-amber-600 hover:text-amber-700 text-xs flex items-center">
-                  <Plus className="w-3 h-3 mr-0.5"/> 新建书单
-                </button>
-              </label>
-              <select 
-                value={book.folder || '默认书单'}
-                onChange={(e) => setEditingBook({...book, folder: e.target.value})}
-                className="w-full px-4 py-2 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 focus:ring-2 focus:ring-amber-500/50 outline-none dark:text-stone-200"
-              >
-                {(settings.folders || ['默认书单']).map(f => (
-                  <option key={f} value={f}>{f}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-stone-600 dark:text-stone-400 mb-2">我的评分</label>
-              <div className="flex space-x-1">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <Star key={star} onClick={() => setEditingBook({...book, rating: star})} className={`w-6 h-6 cursor-pointer transition-transform hover:scale-110 ${star <= (book.rating || 0) ? 'fill-amber-400 text-amber-400' : 'text-stone-300 dark:text-stone-600'}`} />
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-stone-50 dark:bg-stone-800/50 p-6 rounded-2xl border border-stone-100 dark:border-stone-800">
-            <h3 className="text-sm font-bold text-stone-400 dark:text-stone-500 uppercase tracking-wider mb-4">书籍封面</h3>
-            <div className="flex gap-6 items-start">
-              <div className="flex-1">
-                <input type="text" placeholder="https://..." value={book.coverUrl || ''} onChange={(e) => setEditingBook({...book, coverUrl: e.target.value})} className="w-full px-4 py-2 rounded-xl bg-white dark:bg-stone-800 border border-stone-200 dark:border-stone-700 focus:ring-2 focus:ring-amber-500/50 outline-none dark:text-stone-200" />
-              </div>
-              {book.coverUrl && (
-                <div className="w-24 aspect-[2/3] rounded-md overflow-hidden shadow-md shrink-0">
-                  <img src={book.coverUrl} alt="封面预览" className="w-full h-full object-cover" />
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* 灵感区 */}
-        <div className={`${editorTab === 'inspiration' ? 'block' : 'hidden'} space-y-6 max-w-2xl no-print mt-4`}>
-          <div className="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-stone-800/80 dark:to-stone-800/40 p-6 rounded-2xl border border-amber-100 dark:border-stone-700">
-            <h3 className="text-lg font-bold text-amber-900 dark:text-amber-500 mb-2 flex items-center">
-              <Lightbulb className="w-5 h-5 mr-2" /> 寻找灵感与共鸣
-            </h3>
-            <p className="text-sm text-amber-700/80 dark:text-stone-400 mb-6 leading-relaxed">
-              写笔记时卡壳了？或者想看看其他读者对《{book.title || '这本书'}》有什么独到的见解？一键直达各大优质内容平台获取灵感。
-            </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <a href={`https://www.zhihu.com/search?type=content&q=${encodeURIComponent((book.title || '') + ' 读书笔记')}`} target="_blank" rel="noopener noreferrer"
-                 className="flex items-center justify-between p-4 bg-white dark:bg-stone-900 rounded-xl hover:shadow-md transition-shadow border border-stone-100 dark:border-stone-700 group">
-                 <div className="flex items-center space-x-3">
-                    <div className="w-8 h-8 bg-[#0066FF]/10 text-[#0066FF] rounded-lg flex items-center justify-center font-bold">知</div>
-                    <span className="font-medium text-stone-700 dark:text-stone-300">知乎高赞回答</span>
-                 </div>
-                 <ExternalLink className="w-4 h-4 text-stone-300 group-hover:text-[#0066FF]" />
-              </a>
-
-              <a href={`https://search.douban.com/book/subject_search?search_text=${encodeURIComponent(book.title || '')}`} target="_blank" rel="noopener noreferrer"
-                 className="flex items-center justify-between p-4 bg-white dark:bg-stone-900 rounded-xl hover:shadow-md transition-shadow border border-stone-100 dark:border-stone-700 group">
-                 <div className="flex items-center space-x-3">
-                    <div className="w-8 h-8 bg-[#007722]/10 text-[#007722] rounded-lg flex items-center justify-center font-bold">豆</div>
-                    <span className="font-medium text-stone-700 dark:text-stone-300">豆瓣长篇书评</span>
-                 </div>
-                 <ExternalLink className="w-4 h-4 text-stone-300 group-hover:text-[#007722]" />
-              </a>
-            </div>
-          </div>
-        </div>
-
-      </div>
-    </div>
-  );
-}
-
-// ----------------------------------------------------------------------
-// 视图组件：数据统计 (StatsView) - 包含阅读热力图
-// ----------------------------------------------------------------------
-function StatsView({ books, stats, settings, saveSettings, onBack }) {
-  const [goalInput, setGoalInput] = useState(settings.yearlyGoal);
-  const progress = Math.min(100, Math.round((stats.read / settings.yearlyGoal) * 100)) || 0;
-
-  // 生成近 90 天热力图数据
-  const heatmapData = useMemo(() => {
-    const data = {};
-    const today = new Date();
-    today.setHours(0,0,0,0);
-    
-    // 初始化过去 90 天
-    for (let i = 0; i < 90; i++) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
-      data[d.toISOString().split('T')[0]] = 0;
-    }
-    
-    // 填充活跃度 (基于 updatedat 和 createdat)
-    books.forEach(b => {
-      if (b.updatedAt) {
-         const dStr = new Date(b.updatedAt).toISOString().split('T')[0];
-         if (data[dStr] !== undefined) data[dStr] += 1;
-      }
-      if (b.createdAt) {
-         const dStr = new Date(b.createdAt).toISOString().split('T')[0];
-         if (data[dStr] !== undefined) data[dStr] += 1;
-      }
-    });
-    
-    return Object.entries(data).reverse(); // 按照时间顺序排列 [日期, 次数]
-  }, [books]);
-
-  return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-12 pb-32">
-      <header className="flex items-center mb-10">
-        <button onClick={onBack} className="flex items-center text-stone-500 hover:text-stone-900 dark:hover:text-white mr-6 bg-white dark:bg-stone-800 p-2 rounded-full shadow-sm">
-          <ChevronLeft className="w-5 h-5" />
-        </button>
-        <h2 className="text-3xl font-bold text-stone-900 dark:text-stone-100">阅读成就看板</h2>
-      </header>
-
-      {/* 年度目标展示 */}
-      <div className="bg-white dark:bg-stone-800 p-8 rounded-3xl shadow-sm border border-stone-100 dark:border-stone-700 mb-8 flex flex-col md:flex-row items-center gap-8">
-        <div className="relative w-32 h-32 flex shrink-0 justify-center items-center">
-          <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
-            <path className="text-stone-100 dark:text-stone-700" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="3" />
-            <path className="text-amber-500" strokeDasharray={`${progress}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-          </svg>
-          <div className="absolute text-center">
-            <span className="text-2xl font-bold text-stone-800 dark:text-stone-200">{progress}%</span>
-          </div>
-        </div>
+        /* 针对移动端的点击反馈优化 */
+        .active-scale:active { transform: scale(0.95); transition: transform 0.1s; }
         
-        <div className="flex-1 text-center md:text-left">
-          <h3 className="text-2xl font-bold text-stone-900 dark:text-stone-100 mb-2">今年已读完 {stats.read} 本书</h3>
-          <p className="text-stone-500 dark:text-stone-400 mb-4">距离年度目标 <span className="font-bold text-amber-600">{settings.yearlyGoal}</span> 本还有 {Math.max(0, settings.yearlyGoal - stats.read)} 本，继续加油！</p>
-          <div className="flex items-center justify-center md:justify-start gap-2">
-            <input type="number" min="1" max="999" value={goalInput} onChange={(e) => setGoalInput(e.target.value)} className="w-20 px-3 py-1 rounded-lg bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-700 outline-none text-center dark:text-white" />
-            <button onClick={() => saveSettings({yearlyGoal: parseInt(goalInput) || 10})} className="text-sm bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 px-4 py-1.5 rounded-lg hover:bg-stone-700 transition-colors">更新目标</button>
-          </div>
-        </div>
-      </div>
+        /* 书本阴影效果 */
+        .book-shadow { box-shadow: 2px 4px 8px rgba(0,0,0,0.1), -1px 0 2px rgba(255,255,255,0.2) inset; }
+        
+        /* Markdown 样式预览微调 */
+        .markdown-preview blockquote { border-left: 4px solid #f59e0b; padding-left: 1rem; font-style: italic; color: #6b7280; margin: 1rem 0; }
+        .markdown-preview h1 { font-size: 1.5rem; font-weight: bold; margin: 1rem 0; }
+        .markdown-preview h2 { font-size: 1.25rem; font-weight: bold; margin: 0.75rem 0; }
+        
+        .dark body { background-color: #1A1A1A; }
+    </style>
+</head>
+<body class="bg-[#FDFBF7] transition-colors duration-300">
+    <div id="root"></div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
-        <div className="bg-white dark:bg-stone-800 p-6 rounded-3xl shadow-sm border border-stone-100 dark:border-stone-700">
-          <p className="text-stone-500 dark:text-stone-400 text-sm font-medium mb-2">藏书总数</p>
-          <p className="text-4xl font-bold text-stone-900 dark:text-stone-100">{stats.total}</p>
-        </div>
-        <div className="bg-white dark:bg-stone-800 p-6 rounded-3xl shadow-sm border border-stone-100 dark:border-stone-700">
-          <p className="text-stone-500 dark:text-stone-400 text-sm font-medium mb-2">正在阅读</p>
-          <p className="text-4xl font-bold text-emerald-600 dark:text-emerald-400">{stats.reading}</p>
-        </div>
-        <div className="bg-white dark:bg-stone-800 p-6 rounded-3xl shadow-sm border border-stone-100 dark:border-stone-700">
-          <p className="text-stone-500 dark:text-stone-400 text-sm font-medium mb-2">记录总字数(约)</p>
-          <p className="text-4xl font-bold text-indigo-600 dark:text-indigo-400">{stats.totalWords}</p>
-        </div>
-      </div>
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useCallback, useRef } = React;
 
-      {/* 阅读热力图 (GitHub Style) */}
-      <div className="bg-white dark:bg-stone-800 p-6 sm:p-8 rounded-3xl shadow-sm border border-stone-100 dark:border-stone-700">
-        <h3 className="text-lg font-bold text-stone-900 dark:text-stone-100 mb-6">近 90 天阅读记录活跃度</h3>
-        <div className="flex flex-wrap gap-1.5">
-          {heatmapData.map(([dateStr, count], idx) => {
-            let colorClass = "bg-stone-100 dark:bg-stone-700";
-            if (count === 1) colorClass = "bg-emerald-200 dark:bg-emerald-900/50";
-            else if (count === 2) colorClass = "bg-emerald-400 dark:bg-emerald-700";
-            else if (count >= 3) colorClass = "bg-emerald-600 dark:bg-emerald-500";
+        // ----------------------------------------------------------------------
+        // 常量配置
+        // ----------------------------------------------------------------------
+        const BOOK_COLORS = [
+            'bg-red-800', 'bg-blue-800', 'bg-emerald-800',
+            'bg-amber-700', 'bg-purple-800', 'bg-stone-800',
+            'bg-teal-700', 'bg-indigo-800', 'bg-rose-800'
+        ];
+
+        // ----------------------------------------------------------------------
+        // 图标组件封装
+        // ----------------------------------------------------------------------
+        const Icon = ({ name, className = "w-5 h-5", ...props }) => {
+            useEffect(() => { lucide.createIcons(); }, [name]);
+            return <i data-lucide={name} className={className} {...props}></i>;
+        };
+
+        // ----------------------------------------------------------------------
+        // 主应用逻辑
+        // ----------------------------------------------------------------------
+        function App() {
+            // 初始化状态：从本地存储加载
+            const [books, setBooks] = useState(() => JSON.parse(localStorage.getItem('cloud-library-books') || '[]'));
+            const [settings, setSettings] = useState(() => JSON.parse(localStorage.getItem('cloud-library-settings') || '{"yearlyGoal":20, "folders":["默认书单"]}'));
             
-            return (
-              <div 
-                key={dateStr} 
-                title={`${dateStr}: ${count} 次记录`}
-                className={`w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-sm ${colorClass} transition-colors cursor-help`}
-              />
-            )
-          })}
-        </div>
-        <div className="flex items-center justify-end mt-4 text-xs text-stone-500 space-x-2">
-           <span>少</span>
-           <div className="w-3 h-3 rounded-sm bg-stone-100 dark:bg-stone-700"></div>
-           <div className="w-3 h-3 rounded-sm bg-emerald-200 dark:bg-emerald-900/50"></div>
-           <div className="w-3 h-3 rounded-sm bg-emerald-400 dark:bg-emerald-700"></div>
-           <div className="w-3 h-3 rounded-sm bg-emerald-600 dark:bg-emerald-500"></div>
-           <span>多</span>
-        </div>
-      </div>
-    </div>
-  );
-}
+            const [currentView, setCurrentView] = useState('shelf');
+            const [editingBook, setEditingBook] = useState(null);
+            const [editorTab, setEditorTab] = useState('notes');
+            const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
+            const [searchQuery, setSearchQuery] = useState('');
+            const [filterFolder, setFilterFolder] = useState('all');
 
-// ----------------------------------------------------------------------
-// 主应用组件
-// ----------------------------------------------------------------------
-export default function App() {
-  const [currentView, setCurrentView] = useState('shelf');
-  const [editingBook, setEditingBook] = useState(null);
-  const [editorTab, setEditorTab] = useState('notes');
-  const [isDarkMode, setIsDarkMode] = useState(false);
-  
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [sortBy, setSortBy] = useState('recent');
-  const [selectedFolder, setSelectedFolder] = useState('all');
+            // 监听数据持久化
+            useEffect(() => { localStorage.setItem('cloud-library-books', JSON.stringify(books)); }, [books]);
+            useEffect(() => { localStorage.setItem('cloud-library-settings', JSON.stringify(settings)); }, [settings]);
+            useEffect(() => {
+                const root = window.document.documentElement;
+                if (isDarkMode) root.classList.add('dark'); else root.classList.remove('dark');
+                localStorage.setItem('theme', isDarkMode ? 'dark' : 'light');
+            }, [isDarkMode]);
 
-  const { user, authLoading } = useAuth();
-  const { books, settings, isLoading, saveBook, deleteBook, saveSettings, importBooksData } = useBooks(user);
+            // 统计数据计算
+            const stats = useMemo(() => ({
+                total: books.length,
+                read: books.filter(b => b.status === 'read').length,
+                reading: books.filter(b => b.status === 'reading').length,
+                totalWords: books.reduce((acc, b) => acc + (b.content?.length || 0), 0)
+            }), [books]);
 
-  const stats = useMemo(() => ({
-    total: books.length,
-    read: books.filter(b => b.status === 'read').length,
-    reading: books.filter(b => b.status === 'reading').length,
-    unread: books.filter(b => !b.status || b.status === 'unread').length,
-    totalWords: books.reduce((acc, b) => acc + (b.content?.length || 0) + (b.quotes?.length || 0), 0)
-  }), [books]);
+            const handleAddNew = () => {
+                setEditingBook({
+                    id: Date.now().toString(),
+                    title: '', author: '', content: '', quotes: '', 
+                    folder: '默认书单', status: 'unread', rating: 0, coverUrl: '',
+                    color: BOOK_COLORS[Math.floor(Math.random() * BOOK_COLORS.length)],
+                    updatedAt: Date.now()
+                });
+                setEditorTab('info');
+                setCurrentView('editor');
+            };
 
-  const handleAddNew = useCallback(() => {
-    setEditingBook({
-      title: '', author: '', content: '', quotes: '', folder: '默认书单',
-      color: BOOK_COLORS[Math.floor(Math.random() * BOOK_COLORS.length)],
-      status: 'unread', rating: 0, coverUrl: '', tags: ''
-    });
-    setEditorTab('info'); 
-    setCurrentView('editor');
-  }, []);
+            const handleSave = () => {
+                if (!editingBook.title.trim()) return alert("请输入书名");
+                const newList = [...books];
+                const index = newList.findIndex(b => b.id === editingBook.id);
+                if (index > -1) newList[index] = { ...editingBook, updatedAt: Date.now() };
+                else newList.unshift({ ...editingBook, updatedAt: Date.now() });
+                setBooks(newList);
+                setCurrentView('shelf');
+            };
 
-  const handleExport = useCallback(() => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(books));
-    const a = document.createElement('a');
-    a.href = dataStr;
-    a.download = `云端书房备份_${new Date().toISOString().slice(0,10)}.json`;
-    a.click();
-  }, [books]);
+            const filteredBooks = books.filter(b => {
+                const matchesSearch = b.title.includes(searchQuery) || b.author.includes(searchQuery);
+                const matchesFolder = filterFolder === 'all' || b.folder === filterFolder;
+                return matchesSearch && matchesFolder;
+            });
 
-  if (authLoading || isLoading) {
-    return (
-      <div className="min-h-screen bg-[#FDFBF7] flex items-center justify-center">
-        <div className="text-stone-500 animate-pulse flex flex-col items-center">
-          <BookOpen className="w-10 h-10 mb-4" />
-          <p>正在整理书架...</p>
-        </div>
-      </div>
-    );
-  }
+            // ------------------------------------------------------------------
+            // 视图：书架 (Shelf View)
+            // ------------------------------------------------------------------
+            if (currentView === 'shelf') {
+                return (
+                    <div className={`min-h-screen ${isDarkMode ? 'bg-[#1A1A1A] text-stone-200' : 'bg-[#FDFBF7] text-stone-800'} p-4 md:p-8`}>
+                        <header className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
+                            <div>
+                                <h1 className="text-3xl font-bold flex items-center gap-2">
+                                    <Icon name="library" className="text-amber-600" /> 我的云端书房
+                                </h1>
+                                <p className="text-stone-500 text-sm mt-1">记录感悟，沉淀知识</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-3 bg-white dark:bg-stone-800 rounded-full shadow-sm border dark:border-stone-700 active-scale">
+                                    <Icon name={isDarkMode ? "sun" : "moon"} />
+                                </button>
+                                <button onClick={() => setCurrentView('stats')} className="p-3 bg-white dark:bg-stone-800 rounded-full shadow-sm border dark:border-stone-700 active-scale">
+                                    <Icon name="bar-chart-2" />
+                                </button>
+                                <button onClick={handleAddNew} className="bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 px-6 py-3 rounded-full font-bold flex items-center shadow-lg active-scale">
+                                    <Icon name="plus" className="mr-2" /> 添加新书
+                                </button>
+                            </div>
+                        </header>
 
-  return (
-    <div className={isDarkMode ? 'dark' : ''}>
-      <div className="min-h-screen bg-[#FDFBF7] dark:bg-[#1A1A1A] text-stone-800 dark:text-stone-200 font-sans selection:bg-amber-200 dark:selection:bg-amber-900/50 transition-colors duration-300">
+                        <div className="max-w-6xl mx-auto mb-8 flex flex-col md:flex-row gap-4 bg-white dark:bg-stone-800 p-4 rounded-3xl shadow-sm border border-stone-100 dark:border-stone-700">
+                            <div className="relative flex-1">
+                                <Icon name="search" className="absolute left-4 top-1/2 -translate-y-1/2 text-stone-400" />
+                                <input 
+                                    placeholder="搜索书名或作者..." 
+                                    value={searchQuery}
+                                    onChange={e => setSearchQuery(e.target.value)}
+                                    className="w-full pl-12 pr-4 py-2 bg-stone-50 dark:bg-stone-900 border-none rounded-2xl focus:ring-2 focus:ring-amber-500/20" 
+                                />
+                            </div>
+                            <select 
+                                value={filterFolder}
+                                onChange={e => setFilterFolder(e.target.value)}
+                                className="px-4 py-2 bg-stone-50 dark:bg-stone-900 rounded-2xl border-none outline-none text-sm"
+                            >
+                                <option value="all">全部书单</option>
+                                {settings.folders.map(f => <option key={f} value={f}>{f}</option>)}
+                            </select>
+                        </div>
+
+                        <div className="max-w-6xl mx-auto grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6 md:gap-10">
+                            {filteredBooks.map(book => (
+                                <div key={book.id} onClick={() => { setEditingBook(book); setEditorTab('notes'); setCurrentView('editor'); }} className="group cursor-pointer">
+                                    <div className={`aspect-[2/3] ${book.coverUrl ? 'bg-stone-200' : book.color} rounded-r-2xl rounded-l shadow-xl mb-4 group-hover:-translate-y-2 transition-all duration-300 relative overflow-hidden book-shadow`}>
+                                        {book.coverUrl ? (
+                                            <img src={book.coverUrl} className="w-full h-full object-cover" />
+                                        ) : (
+                                            <div className="p-4 flex flex-col h-full justify-end">
+                                                <h3 className="text-white font-bold text-sm leading-tight line-clamp-3 mb-1">{book.title}</h3>
+                                                <p className="text-white/60 text-[10px] truncate">{book.author}</p>
+                                            </div>
+                                        )}
+                                        <div className="absolute top-2 right-2">
+                                            <span className="text-[10px] font-bold px-2 py-1 bg-black/30 backdrop-blur-md text-white rounded-full">
+                                                {book.status === 'read' ? '已读' : book.status === 'reading' ? '在读' : '想读'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <h4 className="text-sm font-bold truncate px-1">{book.title || "未命名"}</h4>
+                                    <p className="text-xs text-stone-500 truncate px-1">{book.author || "未知作者"}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
+            }
+
+            // ------------------------------------------------------------------
+            // 视图：编辑器 (Editor View)
+            // ------------------------------------------------------------------
+            if (currentView === 'editor' && editingBook) {
+                return (
+                    <div className={`min-h-screen ${isDarkMode ? 'bg-[#1A1A1A]' : 'bg-white'} flex flex-col`}>
+                        <nav className="p-4 border-b dark:border-stone-800 flex justify-between items-center sticky top-0 bg-white/80 dark:bg-[#1A1A1A]/80 backdrop-blur-md z-20">
+                            <button onClick={() => setCurrentView('shelf')} className="flex items-center text-stone-500 hover:text-stone-900 dark:hover:text-white transition-colors active-scale">
+                                <Icon name="chevron-left" className="mr-1" /> 返回
+                            </button>
+                            <div className="flex gap-2">
+                                <button onClick={() => { if(confirm("确定删除？")) { setBooks(books.filter(b => b.id !== editingBook.id)); setCurrentView('shelf'); } }} className="p-2 text-stone-400 hover:text-red-500"><Icon name="trash-2" /></button>
+                                <button onClick={handleSave} className="bg-amber-100 text-amber-900 px-6 py-2 rounded-full font-bold shadow-sm hover:bg-amber-200 active-scale flex items-center gap-1">
+                                    <Icon name="save" className="w-4 h-4" /> 保存
+                                </button>
+                            </div>
+                        </nav>
+
+                        <div className="flex border-b dark:border-stone-800">
+                            <button onClick={() => setEditorTab('notes')} className={`flex-1 py-4 text-sm font-bold border-b-2 transition-colors ${editorTab === 'notes' ? 'text-amber-600 border-amber-600' : 'text-stone-400 border-transparent'}`}>读书笔记</button>
+                            <button onClick={() => setEditorTab('quotes')} className={`flex-1 py-4 text-sm font-bold border-b-2 transition-colors ${editorTab === 'quotes' ? 'text-amber-600 border-amber-600' : 'text-stone-400 border-transparent'}`}>金句摘抄</button>
+                            <button onClick={() => setEditorTab('info')} className={`flex-1 py-4 text-sm font-bold border-b-2 transition-colors ${editorTab === 'info' ? 'text-amber-600 border-amber-600' : 'text-stone-400 border-transparent'}`}>设置属性</button>
+                        </div>
+
+                        <main className="flex-1 max-w-4xl mx-auto w-full p-6 md:p-10">
+                            <div className="mb-10">
+                                <input 
+                                    className={`text-3xl md:text-5xl font-extrabold w-full bg-transparent border-none outline-none mb-3 ${isDarkMode ? 'text-white' : 'text-stone-900'}`} 
+                                    placeholder="输入书名..." 
+                                    value={editingBook.title}
+                                    onChange={e => setEditingBook({...editingBook, title: e.target.value})}
+                                />
+                                <input 
+                                    className="text-lg md:text-xl text-stone-500 w-full bg-transparent border-none outline-none font-medium" 
+                                    placeholder="作者" 
+                                    value={editingBook.author}
+                                    onChange={e => setEditingBook({...editingBook, author: e.target.value})}
+                                />
+                            </div>
+
+                            {editorTab === 'notes' && (
+                                <textarea 
+                                    className={`w-full h-[60vh] bg-transparent border-none outline-none text-lg leading-loose font-serif resize-none ${isDarkMode ? 'text-stone-300' : 'text-stone-700'}`} 
+                                    placeholder="这一刻你在想什么..."
+                                    value={editingBook.content}
+                                    onChange={e => setEditingBook({...editingBook, content: e.target.value})}
+                                />
+                            )}
+
+                            {editorTab === 'quotes' && (
+                                <div className="relative">
+                                    <Icon name="quote" className="w-16 h-16 text-amber-500/10 absolute -top-4 -left-4 -z-0" />
+                                    <textarea 
+                                        className={`w-full h-[60vh] bg-transparent border-none outline-none text-xl italic font-serif leading-relaxed z-10 relative pt-4 ${isDarkMode ? 'text-stone-400' : 'text-stone-600'}`} 
+                                        placeholder="摘抄书中触动灵魂的文字..."
+                                        value={editingBook.quotes}
+                                        onChange={e => setEditingBook({...editingBook, quotes: e.target.value})}
+                                    />
+                                    <button onClick={() => downloadPoster(editingBook.quotes, editingBook.title, editingBook.author)} className="mt-4 flex items-center gap-2 bg-stone-100 dark:bg-stone-800 px-4 py-2 rounded-xl text-xs font-bold text-stone-500 active-scale">
+                                        <Icon name="camera" className="w-4 h-4" /> 生成分享海报
+                                    </button>
+                                </div>
+                            )}
+
+                            {editorTab === 'info' && (
+                                <div className="space-y-8 max-w-md animate-in slide-in-from-bottom-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-stone-400 uppercase tracking-widest mb-4 block">阅读状态</label>
+                                        <div className="flex gap-2">
+                                            {['unread', 'reading', 'read'].map(s => (
+                                                <button key={s} onClick={() => setEditingBook({...editingBook, status: s})} className={`flex-1 py-3 rounded-2xl text-sm font-bold border-2 transition-all ${editingBook.status === s ? 'bg-amber-500 text-white border-amber-500 shadow-lg' : 'border-stone-200 dark:border-stone-700 text-stone-400'}`}>
+                                                    {s === 'unread' ? '想读' : s === 'reading' ? '在读' : '已读'}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-stone-400 uppercase tracking-widest mb-4 block">所属书单</label>
+                                        <select value={editingBook.folder} onChange={e => setEditingBook({...editingBook, folder: e.target.value})} className={`w-full p-4 rounded-2xl border-none outline-none shadow-inner ${isDarkMode ? 'bg-stone-800' : 'bg-stone-50'}`}>
+                                            {settings.folders.map(f => <option key={f} value={f}>{f}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-stone-400 uppercase tracking-widest mb-4 block">封面图片 URL (可选)</label>
+                                        <input className={`w-full p-4 rounded-2xl border-none outline-none shadow-inner ${isDarkMode ? 'bg-stone-800' : 'bg-stone-50'}`} placeholder="https://图片链接..." value={editingBook.coverUrl || ''} onChange={e => setEditingBook({...editingBook, coverUrl: e.target.value})} />
+                                    </div>
+                                </div>
+                            )}
+                        </main>
+                    </div>
+                );
+            }
+
+            // ------------------------------------------------------------------
+            // 视图：统计 (Stats View)
+            // ------------------------------------------------------------------
+            if (currentView === 'stats') {
+                return (
+                    <div className={`min-h-screen ${isDarkMode ? 'bg-[#1A1A1A] text-white' : 'bg-[#FDFBF7] text-stone-900'} p-6 md:p-12`}>
+                        <header className="max-w-4xl mx-auto flex items-center mb-12">
+                            <button onClick={() => setCurrentView('shelf')} className="p-3 bg-white dark:bg-stone-800 rounded-full shadow-sm mr-6 active-scale">
+                                <Icon name="chevron-left" />
+                            </button>
+                            <h1 className="text-3xl font-bold">阅读成就统计</h1>
+                        </header>
+                        <div className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
+                            <div className="bg-white dark:bg-stone-800 p-8 rounded-[2.5rem] shadow-sm border dark:border-stone-700">
+                                <p className="text-stone-400 text-xs font-bold uppercase tracking-widest mb-2">藏书总数</p>
+                                <p className="text-5xl font-extrabold">{stats.total}</p>
+                            </div>
+                            <div className="bg-white dark:bg-stone-800 p-8 rounded-[2.5rem] shadow-sm border dark:border-stone-700">
+                                <p className="text-stone-400 text-xs font-bold uppercase tracking-widest mb-2">已读完</p>
+                                <p className="text-5xl font-extrabold text-emerald-500">{stats.read}</p>
+                            </div>
+                            <div className="bg-white dark:bg-stone-800 p-8 rounded-[2.5rem] shadow-sm border dark:border-stone-700">
+                                <p className="text-stone-400 text-xs font-bold uppercase tracking-widest mb-2">累计字数</p>
+                                <p className="text-5xl font-extrabold text-amber-500">{stats.totalWords}</p>
+                            </div>
+                        </div>
+                        <div className="max-w-4xl mx-auto bg-stone-900 text-stone-400 p-10 rounded-[3rem] text-center">
+                            <Icon name="sparkles" className="w-12 h-12 text-amber-400 mx-auto mb-6" />
+                            <h3 className="text-xl font-bold text-white mb-2">保持阅读，让灵魂更有深度</h3>
+                            <p className="italic text-sm">“阅读不是为了逃避生活，而是为了更好地生活。”</p>
+                        </div>
+                    </div>
+                );
+            }
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
         
-        {/* 全局悬浮番茄钟 */}
-        <FocusTimer />
-
-        {currentView === 'shelf' && (
-          <ShelfView
-            books={books} settings={settings}
-            searchQuery={searchQuery} setSearchQuery={setSearchQuery}
-            filterStatus={filterStatus} setFilterStatus={setFilterStatus}
-            sortBy={sortBy} setSortBy={setSortBy}
-            selectedFolder={selectedFolder} setSelectedFolder={setSelectedFolder}
-            isDarkMode={isDarkMode} setIsDarkMode={setIsDarkMode}
-            onAddNew={handleAddNew} onEdit={(book) => { setEditingBook(book); setEditorTab('notes'); setCurrentView('editor'); }}
-            onViewStats={() => setCurrentView('stats')}
-            onExport={handleExport} onImport={importBooksData}
-          />
-        )}
-
-        {currentView === 'editor' && (
-          <EditorView
-            book={editingBook} setEditingBook={setEditingBook}
-            settings={settings} saveSettings={saveSettings}
-            onBack={() => setCurrentView('shelf')}
-            onSave={async () => { await saveBook(editingBook); setCurrentView('shelf'); }}
-            onDelete={async (id) => { if(window.confirm('确定要删除这本书吗？')) { await deleteBook(id); setCurrentView('shelf'); } }}
-            editorTab={editorTab} setEditorTab={setEditorTab}
-            handlePrint={() => window.print()}
-          />
-        )}
-
-        {currentView === 'stats' && (
-          <StatsView
-            books={books} stats={stats} settings={settings}
-            saveSettings={saveSettings} onBack={() => setCurrentView('shelf')}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
+        // 自动初始化图标
+        const iconTimer = setInterval(() => {
+            if (window.lucide) {
+                lucide.createIcons();
+                clearInterval(iconTimer);
+            }
+        }, 200);
+    </script>
+</body>
+</html>
