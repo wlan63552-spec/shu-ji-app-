@@ -3,40 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>云端书房 | 极致美学旗舰版</title>
+    <title>云端书房 | Ultimate 旗舰版</title>
     
-    <!-- PWA 核心配置 -->
+    <!-- PWA 配置 -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="apple-mobile-web-app-title" content="云端书房">
     <link rel="apple-touch-icon" href="https://api.iconify.design/lucide/book-marked.svg?color=%23111111">
+    <link rel="manifest" id="manifest-placeholder">
     
-    <!-- 加载依赖 -->
+    <!-- 依赖库 -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     
-    <!-- Firebase SDK 模块 -->
+    <!-- Firebase SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, setDoc, onSnapshot, query, deleteDoc, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        // 挂载到全局，供 React 使用
-        window.FirebaseSDK = { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, collection, doc, setDoc, onSnapshot, query, deleteDoc, orderBy };
-        // 触发自定义事件，通知 React Firebase 已就绪
+        import { getFirestore, collection, doc, setDoc, onSnapshot, query, deleteDoc, updateDoc, increment } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        window.FirebaseSDK = { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getFirestore, collection, doc, setDoc, onSnapshot, query, deleteDoc, updateDoc, increment };
         window.dispatchEvent(new Event('firebase-ready'));
     </script>
 
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;900&family=Noto+Serif+SC:wght@200;500;700;900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;800&family=Noto+Serif+SC:wght@200;400;600;900&display=swap');
         
         :root {
-            --bg: #F8F7F2;
+            --bg: #F9F8F6;
             --ink: #1A1A1A;
-            --border: #E2E0D5;
-            --accent: #8C7E6A;
+            --border: #E8E6E0;
+            --accent: #0066FF;
         }
 
         body { 
@@ -44,79 +42,131 @@
             background-color: var(--bg);
             color: var(--ink);
             -webkit-font-smoothing: antialiased;
-            /* 适配手机刘海和底部安全区 */
-            padding-top: env(safe-area-inset-top);
-            padding-bottom: env(safe-area-inset-bottom);
-            overflow-x: hidden;
+            line-height: 1.8;
+            transition: background-color 0.5s ease;
         }
 
         .serif { font-family: 'Noto Serif SC', serif; }
         .hairline { border: 0.5px solid var(--border); }
-        .hairline-b { border-bottom: 0.5px solid var(--border); }
+        .editor-container { max-width: 760px; margin: 0 auto; }
 
-        /* 移动端性能优化：减少模糊滤镜开销 */
-        .glass-mobile {
-            background-color: rgba(248, 247, 242, 0.9);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-        }
-
-        .book-cover {
-            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s ease;
-            background-color: #fff;
-            border: 0.5px solid var(--border);
-            will-change: transform; /* 启用 GPU 加速 */
+        /* 微信读书感卡片 */
+        .book-card {
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+            background: #fff;
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.03);
         }
         
         @media (min-width: 768px) {
-            .book-cover:hover { transform: translateY(-8px); box-shadow: 0 40px 80px rgba(0,0,0,0.08); }
+            .book-card:hover { transform: translateY(-12px); box-shadow: 0 30px 60px rgba(0,0,0,0.08); }
         }
 
-        .active-scale:active { transform: scale(0.95); transition: 0.1s; }
+        .active-scale:active { transform: scale(0.96); transition: 0.1s; }
         .hide-scrollbar::-webkit-scrollbar { display: none; }
-        
-        .fade-in { animation: fadeIn 0.5s ease-out forwards; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-        .heat-0 { background-color: #E2E0D5; }
-        .heat-1 { background-color: #D9C5B2; }
-        .heat-2 { background-color: #8C7E6A; }
-        .heat-3 { background-color: #1A1A1A; }
+        /* 进场动画 */
+        .fade-slide { animation: fadeSlide 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        @keyframes fadeSlide { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 
-        .dark { --bg: #121212; --ink: #E2E0D5; --border: #2A2A2A; --accent: #A39684; }
-        .dark .glass-mobile { background-color: rgba(18, 18, 18, 0.9); }
-
-        .loader-spin { animation: spin 1s linear infinite; }
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        
-        /* 响应式列表优化 */
-        .discover-columns {
-            column-count: 1;
-            column-gap: 1.5rem;
+        /* 沉浸导航 */
+        .nav-blur {
+            background-color: rgba(249, 248, 246, 0.85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
         }
-        @media (min-width: 768px) { .discover-columns { column-count: 2; } }
-        @media (min-width: 1024px) { .discover-columns { column-count: 3; } }
+
+        .dark { --bg: #111111; --ink: #E0E0E0; --border: #222222; }
+        .dark .nav-blur { background-color: rgba(17, 17, 17, 0.85); }
+        .dark .book-card { background-color: #181818; }
+
+        ::selection { background: var(--ink); color: var(--bg); }
+        
+        /* Markdown 样式补充 */
+        .prose h1 { font-size: 2rem; font-weight: bold; margin: 1.5rem 0 1rem; }
+        .prose h2 { font-size: 1.5rem; font-weight: bold; margin: 1.2rem 0 0.8rem; }
+        .prose h3 { font-size: 1.25rem; font-weight: bold; margin: 1rem 0 0.5rem; }
+        .prose blockquote { border-left: 4px solid #D97706; padding-left: 1rem; color: #666; font-style: italic; background: rgba(0,0,0,0.03); padding: 0.5rem 1rem; border-radius: 4px; }
+        .dark .prose blockquote { color: #A0A0A0; background: rgba(255,255,255,0.05); }
+        .prose strong { color: #D97706; font-weight: bold; }
     </style>
 </head>
-<body>
+<body class="selection:bg-stone-200">
     <div id="root">
-        <!-- 初始加载状态，防止脚本解析时完全空白 -->
-        <div class="flex items-center justify-center min-h-screen bg-[#F8F7F2]">
-            <div class="text-center">
-                <div class="text-stone-300 serif italic text-xl animate-pulse">正在整理书房...</div>
-            </div>
+        <div class="flex items-center justify-center min-h-screen bg-[#F9F8F6] dark:bg-[#111111]">
+            <div class="text-stone-300 dark:text-stone-700 serif italic text-xl animate-pulse">正在唤醒智能书房...</div>
         </div>
     </div>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo, useCallback, useRef, memo } = React;
 
-        // --- 核心配置 ---
+        // --- 配置 ---
         const apiKey = ""; 
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'zen-library-pro-v4';
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'zen-archives-ultimate';
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const AI_TEXT_MODEL = "gemini-2.5-flash-preview-09-2025";
+        const AI_TTS_MODEL = "gemini-2.5-flash-preview-tts";
 
-        // --- 图标组件 ---
+        // --- 工具：Markdown 解析与海报生成 ---
+        const parseMarkdown = (text) => {
+            if (!text) return '<p class="text-stone-400">暂无内容...</p>';
+            let html = text
+                .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+                .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+                .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+                .replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
+                .replace(/\*(.*?)\*/gim, '<em>$1</em>')
+                .replace(/^\> (.*$)/gim, '<blockquote>$1</blockquote>')
+                .replace(/\n/gim, '<br />');
+            return `<div class="prose leading-loose font-serif">${html}</div>`;
+        };
+
+        const downloadPoster = (quote, title, author, isDark) => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1080; canvas.height = 1080;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = isDark ? '#181818' : '#F9F8F6'; 
+            ctx.fillRect(0, 0, 1080, 1080);
+            ctx.fillStyle = '#D97706'; 
+            ctx.fillRect(100, 120, 12, 80);
+            ctx.fillStyle = isDark ? '#A0A0A0' : '#78716C'; 
+            ctx.font = '32px sans-serif';
+            ctx.fillText('READING QUOTES', 140, 175);
+
+            ctx.fillStyle = isDark ? '#E0E0E0' : '#1A1A1A'; 
+            ctx.font = 'italic 48px "Noto Serif SC", serif';
+            const text = quote || '静下心来，读一本好书。';
+            let line = ''; let y = 320; const maxWidth = 880;
+
+            for (let i = 0; i < text.length; i++) {
+                const char = text[i];
+                if (char === '\n') { ctx.fillText(line, 100, y); line = ''; y += 70; continue; }
+                const testLine = line + char;
+                if (ctx.measureText(testLine).width > maxWidth && i > 0) {
+                    ctx.fillText(line, 100, y); line = char; y += 70;
+                } else { line = testLine; }
+            }
+            ctx.fillText(line, 100, y);
+
+            y += 150;
+            ctx.fillStyle = '#D97706';
+            ctx.font = 'bold 36px sans-serif';
+            ctx.fillText(`—— 《${title || '未命名'}》`, 90, y);
+            
+            ctx.fillStyle = isDark ? '#78716C' : '#A8A29E';
+            ctx.font = '32px sans-serif';
+            ctx.fillText(author || '佚名', 150, y + 60);
+
+            const link = document.createElement('a');
+            link.download = `摘抄海报_${title || '书籍'}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        };
+
+        // --- 优雅图标组件 ---
         const Icon = memo(({ name, className = "w-4 h-4", ...props }) => {
             const iconRef = useRef(null);
             useEffect(() => {
@@ -130,21 +180,92 @@
             return <i ref={iconRef} className={className} {...props}></i>;
         });
 
-        const callAI = async (prompt, system, isGrounding = false) => {
+        // --- Google AI 服务 ---
+        const callGoogleAI = async (prompt, system, isSearch = false, base64 = null, mime = null) => {
+            const payload = {
+                contents: [{ role: "user", parts: [{ text: prompt }] }],
+                systemInstruction: { parts: [{ text: system }] }
+            };
+            if (base64 && mime) payload.contents[0].parts.push({ inlineData: { mimeType: mime, data: base64 } });
+            if (isSearch) payload.tools = [{ "google_search": {} }];
             try {
-                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-                const payload = {
-                    contents: [{ role: "user", parts: [{ text: prompt }] }],
-                    systemInstruction: { parts: [{ text: system }] }
-                };
-                if (isGrounding) payload.tools = [{ "google_search": {} }];
-                const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${AI_TEXT_MODEL}:generateContent?key=${apiKey}`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+                });
                 const data = await res.json();
-                return data.candidates?.[0]?.content?.parts?.[0]?.text || "AI 暂时没有回应...";
-            } catch (err) {
-                return "服务连接失败";
-            }
+                return data.candidates?.[0]?.content?.parts?.[0]?.text || "AI 忙碌中...";
+            } catch (err) { return "服务连接失败"; }
         };
+
+        const playTTS = async (text) => {
+            if (!text || text.trim().length === 0) return;
+            try {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${AI_TTS_MODEL}:generateContent?key=${apiKey}`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: `用极致温柔知性的女声播报：${text.slice(0, 300)}` }] }],
+                        generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } } }
+                    })
+                });
+                const data = await res.json();
+                const audioData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+                if (!audioData) return;
+                const binary = atob(audioData);
+                const bytes = new Int16Array(binary.length / 2);
+                for (let i = 0; i < binary.length; i += 2) bytes[i/2] = (binary.charCodeAt(i+1) << 8) | binary.charCodeAt(i);
+                const ctx = new AudioContext({ sampleRate: 24000 });
+                const buf = ctx.createBuffer(1, bytes.length, 24000);
+                buf.getChannelData(0).set(Array.from(bytes).map(v => v / 32768));
+                const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination); src.start();
+            } catch (err) { console.error(err); }
+        };
+
+        // --- 独立组件：番茄钟沉浸模式 ---
+        function FocusTimer() {
+            const [isOpen, setIsOpen] = useState(false);
+            const [timeLeft, setTimeLeft] = useState(25 * 60);
+            const [isActive, setIsActive] = useState(false);
+
+            useEffect(() => {
+                let interval = null;
+                if (isActive && timeLeft > 0) {
+                    interval = setInterval(() => setTimeLeft(t => t - 1), 1000);
+                } else if (timeLeft === 0) {
+                    setIsActive(false);
+                    alert("专注时间结束！休息一下吧。");
+                }
+                return () => clearInterval(interval);
+            }, [isActive, timeLeft]);
+
+            const minutes = Math.floor(timeLeft / 60).toString().padStart(2, '0');
+            const seconds = (timeLeft % 60).toString().padStart(2, '0');
+
+            return (
+                <div className="fixed bottom-24 lg:bottom-12 right-6 lg:right-12 z-[100] no-print">
+                    {isOpen ? (
+                        <div className="bg-white/95 dark:bg-[#181818]/95 backdrop-blur-xl p-6 rounded-[2rem] shadow-2xl border border-stone-200 dark:border-stone-800 w-64 fade-slide">
+                            <div className="flex justify-between items-center mb-6">
+                                <h4 className="font-bold text-stone-800 dark:text-stone-200 flex items-center text-sm uppercase tracking-widest"><Icon name="timer" className="w-4 h-4 mr-2 text-amber-500" /> 沉浸专注</h4>
+                                <button onClick={() => setIsOpen(false)} className="text-stone-400 hover:text-stone-800 dark:hover:text-white transition-colors"><Icon name="chevron-down" /></button>
+                            </div>
+                            <div className="text-center font-mono text-5xl font-light text-amber-600 dark:text-amber-500 mb-8 tracking-tighter">{minutes}:{seconds}</div>
+                            <div className="flex justify-center space-x-6">
+                                <button onClick={() => setIsActive(!isActive)} className="p-4 bg-stone-900 dark:bg-white text-white dark:text-black rounded-full hover:scale-105 active-scale shadow-lg transition-transform">
+                                    <Icon name={isActive ? "pause" : "play"} className={`w-5 h-5 ${!isActive && 'ml-1'}`} />
+                                </button>
+                                <button onClick={() => { setIsActive(false); setTimeLeft(25 * 60); }} className="p-4 bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 rounded-full hover:bg-stone-200 dark:hover:bg-stone-700 active-scale transition-colors">
+                                    <Icon name="rotate-ccw" className="w-5 h-5" />
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <button onClick={() => setIsOpen(true)} className="w-16 h-16 bg-black text-white dark:bg-white dark:text-black rounded-full flex items-center justify-center active-scale shadow-2xl group transition-transform hover:scale-105">
+                            <Icon name="timer" className="w-6 h-6 group-hover:animate-pulse" />
+                        </button>
+                    )}
+                </div>
+            );
+        }
 
         // ----------------------------------------------------------------------
         // 主程序
@@ -159,140 +280,234 @@
             const [tab, setTab] = useState('notes');
             const [isDark, setIsDark] = useState(false);
             const [isLoading, setIsLoading] = useState(false);
+            const [toast, setToast] = useState('');
+            const [isPreviewMode, setIsPreviewMode] = useState(false);
+            const [deferredPrompt, setDeferredPrompt] = useState(null);
+            
+            // 筛选状态
+            const [searchQuery, setSearchQuery] = useState('');
+            const [selectedFolder, setSelectedFolder] = useState('all');
+            const fileInputRef = useRef(null);
 
-            // 监听 Firebase 是否准备好
+            // 初始化 Firebase
             useEffect(() => {
-                const checkFirebase = () => {
+                const init = async () => {
                     if (window.FirebaseSDK) {
-                        setIsReady(true);
-                        initializeAuth();
+                        const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = window.FirebaseSDK;
+                        const app = initializeApp(firebaseConfig);
+                        const auth = getAuth(app);
+                        try {
+                            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                                await signInWithCustomToken(auth, __initial_auth_token);
+                            } else { await signInAnonymously(auth); }
+                        } catch(err) { console.error(err); }
+                        onAuthStateChanged(auth, (u) => { setUser(u); setIsReady(true); });
                     }
                 };
-                window.addEventListener('firebase-ready', checkFirebase);
-                checkFirebase(); // 立即检查一次
-                return () => window.removeEventListener('firebase-ready', checkFirebase);
+                window.addEventListener('firebase-ready', init);
+                init();
+                return () => window.removeEventListener('firebase-ready', init);
             }, []);
 
-            const initializeAuth = async () => {
-                const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = window.FirebaseSDK;
-                const app = initializeApp(firebaseConfig);
-                const auth = getAuth(app);
+            // PWA 安装监听
+            useEffect(() => {
+                const manifest = {
+                    name: "云端书房", short_name: "云端书房", display: "standalone",
+                    background_color: isDark ? "#111111" : "#F9F8F6", theme_color: "#1A1A1A",
+                    icons: [{ src: "https://api.iconify.design/lucide/book-open.svg?color=%23000000", sizes: "192x192", type: "image/svg+xml" }]
+                };
+                const manifestURL = URL.createObjectURL(new Blob([JSON.stringify(manifest)], {type: 'application/json'}));
+                let manifestLink = document.getElementById('manifest-placeholder');
+                if (manifestLink) manifestLink.href = manifestURL;
 
-                try {
-                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                        await signInWithCustomToken(auth, __initial_auth_token);
-                    } else {
-                        await signInAnonymously(auth);
-                    }
-                } catch (e) { console.error(e); }
+                const handler = (e) => { e.preventDefault(); setDeferredPrompt(e); };
+                window.addEventListener('beforeinstallprompt', handler);
+                return () => window.removeEventListener('beforeinstallprompt', handler);
+            }, [isDark]);
 
-                onAuthStateChanged(auth, setUser);
-            };
-
-            // 监听数据
+            // 数据流
             useEffect(() => {
                 if (!user || !isReady) return;
                 const { getFirestore, collection, onSnapshot } = window.FirebaseSDK;
                 const db = getFirestore();
-
-                const unsubPrivate = onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'books'), (snap) => {
-                    setBooks(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                const unsub1 = onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'books'), (snap) => {
+                    setBooks(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0)));
                 });
-                const unsubPublic = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'shared_books'), (snap) => {
-                    const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                    setPublicBooks(data.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)));
+                const unsub2 = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'shared_books'), (snap) => {
+                    setPublicBooks(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b)=> (b.updatedAt || 0) - (a.updatedAt || 0)));
                 });
-
-                return () => { unsubPrivate(); unsubPublic(); };
+                return () => { unsub1(); unsub2(); };
             }, [user, isReady]);
 
-            useEffect(() => {
-                document.documentElement.classList.toggle('dark', isDark);
-            }, [isDark]);
+            useEffect(() => { document.documentElement.classList.toggle('dark', isDark); }, [isDark]);
 
-            const handleSave = async () => {
-                if (!activeBook.title.trim() || !user) return;
+            const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
+
+            const handleSave = async (b = activeBook) => {
+                if (!b?.title?.trim() || !user) return;
                 const { getFirestore, doc, setDoc } = window.FirebaseSDK;
-                const db = getFirestore();
-                const bookData = { ...activeBook, updatedAt: Date.now(), userId: user.uid };
-                
-                await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'books', activeBook.id), bookData);
-                if (activeBook.isPublic) {
-                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'shared_books', activeBook.id), bookData);
-                }
+                const data = { ...b, updatedAt: Date.now(), userId: user.uid };
+                await setDoc(doc(getFirestore(), 'artifacts', appId, 'users', user.uid, 'books', b.id), data);
+                if (b.isPublic) await setDoc(doc(getFirestore(), 'artifacts', appId, 'public', 'data', 'shared_books', b.id), data);
                 setView('shelf');
+                showToast('已同步至云端');
             };
 
-            const handleAiAnalysis = async () => {
-                if (activeBook.content.length < 5) return;
+            const handleCameraOCR = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                setIsLoading(true); showToast('正在深度识读页面...');
+                const reader = new FileReader();
+                reader.onload = async (evt) => {
+                    const base64 = evt.target.result.split(',')[1];
+                    const system = "你是一位专业的知识整理师。请将图片文字提取并转化为带Markdown格式的精美笔记。";
+                    const res = await callGoogleAI("整理这份笔记", system, false, base64, file.type);
+                    setActiveBook(p => ({ ...p, content: (p.content ? p.content + "\n\n" : "") + res }));
+                    setIsLoading(false); showToast('笔记已生成');
+                };
+                reader.readAsDataURL(file);
+            };
+
+            const handleImport = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = async (evt) => {
+                    try {
+                        const data = JSON.parse(evt.target.result);
+                        if(Array.isArray(data)) {
+                            const { getFirestore, doc, setDoc } = window.FirebaseSDK;
+                            const db = getFirestore();
+                            for(let b of data) {
+                                await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'books', b.id || Date.now().toString()), { ...b, userId: user.uid, updatedAt: Date.now() });
+                            }
+                            showToast(`成功导入 ${data.length} 本书！`);
+                        }
+                    } catch (err) { alert('解析失败，请确认为有效的 JSON 文件。'); }
+                };
+                reader.readAsText(file);
+            };
+
+            const runLab = async (type) => {
+                if (!activeBook?.content) return showToast('内容不足');
                 setIsLoading(true);
-                const res = await callAI(activeBook.content, "你是一位顶尖的文学评论家，请深度析评这段笔记，提炼核心洞察并给出人生启发。");
-                setActiveBook(p => ({ ...p, content: p.content + "\n\n[ 智库深度析评 ]\n" + res }));
-                setIsLoading(false);
+                let prompt = '', system = '';
+                if(type === 'roadmap') { prompt = `为书籍《${activeBook.title}》定制7天学习计划。`; system="导师"; }
+                if(type === 'flashcards') { prompt = `从笔记中提取5对核心QA记忆卡片：\n${activeBook.content}`; system="记忆专家"; }
+                const res = await callGoogleAI(prompt, system, true);
+                setActiveBook(p => ({ ...p, content: (p.content || "") + `\n\n---\n### 🧪 AI 实验室: ${type}\n` + res }));
+                setIsLoading(false); showToast('实验结果已注入');
             };
 
-            const heatmapData = useMemo(() => {
-                const data = Array(90).fill(0);
-                const now = new Date();
-                books.forEach(b => {
-                    const diff = Math.floor((now - new Date(b.updatedAt)) / (1000 * 60 * 60 * 24));
-                    if (diff >= 0 && diff < 90) data[89 - diff] += 1;
+            const filteredBooks = useMemo(() => {
+                return books.filter(b => {
+                    const matchSearch = (b.title || '').includes(searchQuery) || (b.author || '').includes(searchQuery);
+                    const matchFolder = selectedFolder === 'all' || (b.folder || '默认书单') === selectedFolder;
+                    return matchSearch && matchFolder;
                 });
-                return data;
+            }, [books, searchQuery, selectedFolder]);
+
+            // 获取所有唯一的文件夹
+            const allFolders = useMemo(() => {
+                const folders = new Set(['默认书单']);
+                books.forEach(b => { if (b.folder) folders.add(b.folder); });
+                return Array.from(folders);
             }, [books]);
 
             if (!isReady) return null;
 
             return (
-                <div className="min-h-screen">
-                    {/* 手机端吸顶导航 */}
-                    <nav className="fixed top-0 w-full h-16 md:h-20 px-4 md:px-8 flex justify-between items-center glass-mobile z-50 hairline-b">
-                        <div className="flex items-center gap-4 md:gap-10">
-                            <h2 className="text-xl md:text-2xl font-black serif italic tracking-tighter cursor-pointer" onClick={() => setView('shelf')}>Archives.</h2>
-                            <div className="hidden sm:flex gap-6 text-[10px] font-black uppercase tracking-widest text-stone-400">
-                                <button onClick={() => setView('shelf')} className={view === 'shelf' ? 'text-black dark:text-white' : ''}>馆藏</button>
-                                <button onClick={() => setView('discover')} className={view === 'discover' ? 'text-black dark:text-white' : ''}>广场</button>
-                                <button onClick={() => setView('stats')} className={view === 'stats' ? 'text-black dark:text-white' : ''}>指标</button>
-                            </div>
+                <div className={`${isDark ? 'dark' : ''} min-h-screen transition-colors duration-700`}>
+                    
+                    {toast && (
+                        <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[100] fade-slide">
+                            <div className="bg-black/90 text-white px-8 py-2.5 rounded-full text-[11px] font-bold uppercase tracking-widest shadow-2xl">{toast}</div>
                         </div>
-                        <div className="flex gap-4 items-center">
-                            <button onClick={() => setIsDark(!isDark)} className="opacity-40 active-scale"><Icon name={isDark ? 'sun' : 'moon'} /></button>
+                    )}
+
+                    <FocusTimer />
+
+                    {/* 侧边极简导航 (Desktop Only) */}
+                    <nav className="fixed left-0 top-0 h-full w-20 hidden lg:flex flex-col items-center py-10 gap-10 border-r border-black/5 z-50 bg-white/50 dark:bg-black/20">
+                        <h1 className="text-xl font-black serif italic tracking-tighter cursor-pointer" onClick={() => setView('shelf')}>Z.</h1>
+                        <div className="flex flex-col gap-8 text-stone-400">
+                            <button onClick={() => setView('shelf')} className={view === 'shelf' ? 'text-black dark:text-white' : 'hover:text-stone-600'}><Icon name="home" className="w-5 h-5" /></button>
+                            <button onClick={() => setView('discover')} className={view === 'discover' ? 'text-black dark:text-white' : 'hover:text-stone-600'}><Icon name="compass" className="w-5 h-5" /></button>
+                            <button onClick={() => setView('stats')} className={view === 'stats' ? 'text-black dark:text-white' : 'hover:text-stone-600'}><Icon name="bar-chart-2" className="w-5 h-5" /></button>
+                        </div>
+                        <div className="mt-auto flex flex-col gap-6 items-center text-stone-400">
                             <button onClick={() => {
-                                const id = Date.now().toString();
-                                setActiveBook({ id, title: '', author: '', content: '', quotes: '', isPublic: false, status: '想读' });
-                                setTab('notes'); setView('editor');
-                            }} className="bg-black dark:bg-white text-white dark:text-black px-4 py-1.5 rounded-full text-[10px] font-black uppercase active-scale">
-                                增补
-                            </button>
+                                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(books));
+                                const a = document.createElement('a'); a.href = dataStr; a.download = `backup_${Date.now()}.json`; a.click();
+                            }} className="opacity-50 hover:opacity-100 active-scale" title="导出"><Icon name="download" /></button>
+                            <button onClick={() => fileInputRef.current?.click()} className="opacity-50 hover:opacity-100 active-scale" title="导入"><Icon name="upload" /></button>
+                            <input type="file" ref={fileInputRef} onChange={handleImport} accept=".json" className="hidden" />
+                            
+                            <button onClick={() => setIsDark(!isDark)} className="p-4 opacity-50 hover:opacity-100 active-scale"><Icon name={isDark ? 'sun' : 'moon'} /></button>
                         </div>
                     </nav>
 
-                    {/* 移动端底部导航占位 (仅手机显示) */}
-                    <div className="sm:hidden fixed bottom-0 left-0 w-full glass-mobile hairline-t flex justify-around py-3 z-50">
-                        <button onClick={() => setView('shelf')} className={`p-2 ${view === 'shelf' ? 'text-black dark:text-white' : 'text-stone-300'}`}><Icon name="home" /></button>
-                        <button onClick={() => setView('discover')} className={`p-2 ${view === 'discover' ? 'text-black dark:text-white' : 'text-stone-300'}`}><Icon name="compass" /></button>
-                        <button onClick={() => setView('stats')} className={`p-2 ${view === 'stats' ? 'text-black dark:text-white' : 'text-stone-300'}`}><Icon name="bar-chart-2" /></button>
+                    {/* 移动端沉浸底部导航 */}
+                    <div className="lg:hidden fixed bottom-0 left-0 w-full nav-blur hairline-t flex justify-around py-5 z-50 px-6">
+                        <button onClick={() => setView('shelf')} className={view === 'shelf' ? 'text-black dark:text-white' : 'text-stone-300'}><Icon name="home" className="w-6 h-6" /></button>
+                        <button onClick={() => setView('discover')} className={view === 'discover' ? 'text-black dark:text-white' : 'text-stone-300'}><Icon name="compass" className="w-6 h-6" /></button>
+                        <button onClick={() => setView('stats')} className={view === 'stats' ? 'text-black dark:text-white' : 'text-stone-300'}><Icon name="bar-chart-2" className="w-6 h-6" /></button>
+                        <button onClick={() => setIsDark(!isDark)} className="text-stone-300"><Icon name={isDark ? 'sun' : 'moon'} className="w-5 h-5" /></button>
                     </div>
 
-                    <main className="pt-20 md:pt-32 pb-24 md:pb-20 px-4 md:px-8 max-w-6xl mx-auto">
+                    <main className="lg:pl-20 pt-10 md:pt-20 pb-32">
                         
+                        {/* 首页视图：极简、呼吸感、带搜索 */}
                         {view === 'shelf' && (
-                            <div className="animate-fade">
-                                <div className="mb-10 md:mb-20">
-                                    <h3 className="text-3xl md:text-5xl font-black serif italic tracking-tighter mb-2 md:mb-4">Personal domain.</h3>
-                                    <p className="text-stone-400 text-[10px] md:text-xs font-medium uppercase tracking-widest">每一行文字都是灵魂的存证。</p>
+                            <div className="max-w-6xl mx-auto px-6 md:px-12 fade-slide">
+                                <header className="mb-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                                    <div>
+                                        <h2 className="text-[10px] font-black uppercase tracking-[0.4em] text-stone-400 mb-4 flex items-center gap-2">
+                                            <div className="w-8 h-px bg-stone-200"></div> Digital Private Archive
+                                        </h2>
+                                        <h3 className="text-4xl md:text-6xl font-black serif italic tracking-tighter leading-tight">My Library.</h3>
+                                    </div>
+                                    <div className="flex items-center gap-4 w-full md:w-auto">
+                                        <div className="relative flex-1 md:w-64">
+                                            <Icon name="search" className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
+                                            <input type="text" placeholder="搜索藏书..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-3 rounded-full bg-white dark:bg-stone-900 border hairline focus:outline-none focus:border-black dark:focus:border-white transition-colors text-sm" />
+                                        </div>
+                                        <button onClick={() => { setActiveBook({id:Date.now().toString(), title:'', author:'', content:'', quotes:'', status:'在读', folder:'默认书单', rating:0, isPublic:false}); setView('editor'); setTab('notes'); }} className="shrink-0 bg-black dark:bg-white text-white dark:text-black w-12 h-12 rounded-full flex items-center justify-center active-scale shadow-xl"><Icon name="plus" /></button>
+                                        
+                                        <button onClick={async () => {
+                                            if (deferredPrompt) {
+                                                deferredPrompt.prompt();
+                                                const { outcome } = await deferredPrompt.userChoice;
+                                                if (outcome === 'accepted') setDeferredPrompt(null);
+                                            } else { alert("苹果用户：点击浏览器分享 -> 添加到主屏幕\n安卓用户：点击菜单 -> 添加到桌面"); }
+                                        }} className="shrink-0 bg-white dark:bg-stone-800 text-stone-600 dark:text-stone-300 w-12 h-12 rounded-full flex items-center justify-center active-scale border hairline" title="安装应用"><Icon name="smartphone" /></button>
+                                    </div>
+                                </header>
+
+                                {/* 文件夹导航 */}
+                                <div className="flex gap-2 overflow-x-auto hide-scrollbar mb-10 pb-2">
+                                    <button onClick={() => setSelectedFolder('all')} className={`px-5 py-2 rounded-full text-xs font-bold uppercase tracking-widest whitespace-nowrap transition-colors ${selectedFolder === 'all' ? 'bg-black text-white dark:bg-white dark:text-black shadow-md' : 'bg-white dark:bg-stone-900 border hairline text-stone-400 hover:text-black'}`}>全部 ({books.length})</button>
+                                    {allFolders.map(f => (
+                                        <button key={f} onClick={() => setSelectedFolder(f)} className={`px-5 py-2 rounded-full text-xs font-bold uppercase tracking-widest whitespace-nowrap transition-colors ${selectedFolder === f ? 'bg-black text-white dark:bg-white dark:text-black shadow-md' : 'bg-white dark:bg-stone-900 border hairline text-stone-400 hover:text-black'}`}>{f}</button>
+                                    ))}
                                 </div>
-                                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-16">
-                                    {books.length === 0 ? (
-                                        <div className="col-span-full py-32 border hairline border-dashed text-center rounded-3xl opacity-50">尚未动笔</div>
-                                    ) : books.map(book => (
+
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6 md:gap-10">
+                                    {filteredBooks.map(book => (
                                         <div key={book.id} onClick={() => { setActiveBook(book); setView('editor'); }} className="group cursor-pointer">
-                                            <div className="aspect-[3/4] book-cover p-6 md:p-10 flex flex-col justify-between mb-4 relative overflow-hidden dark:bg-stone-900">
-                                                <div className="w-8 h-px bg-stone-200"></div>
-                                                <h4 className="text-xl md:text-3xl serif font-bold leading-tight line-clamp-3">{book.title || "无题"}</h4>
-                                                <div className="flex justify-between items-end">
-                                                    <p className="text-[9px] uppercase font-bold text-stone-400 truncate max-w-[80%]">{book.author || "佚名"}</p>
-                                                    {book.isPublic && <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>}
+                                            <div className="aspect-[3/4] book-card p-6 flex flex-col justify-between mb-4 relative overflow-hidden dark:bg-[#181818] border hairline">
+                                                <div className="w-8 h-px bg-stone-200 group-hover:w-full transition-all duration-1000"></div>
+                                                <div>
+                                                    <h4 className="text-xl serif font-bold leading-tight line-clamp-3 group-hover:italic transition-all duration-500">{book.title || "Untitled"}</h4>
+                                                    {book.rating > 0 && (
+                                                        <div className="mt-2 flex text-amber-500">
+                                                            {Array(book.rating).fill(0).map((_, i) => <Icon key={i} name="star" className="w-3 h-3 fill-current" />)}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className="flex justify-between items-end opacity-40 text-[9px] font-black tracking-[0.2em]">
+                                                    <span className="truncate max-w-[70%]">{book.author || "佚名"}</span>
+                                                    {book.isPublic && <div className="w-1.5 h-1.5 bg-blue-500 rounded-full shadow-lg"></div>}
                                                 </div>
                                             </div>
                                         </div>
@@ -301,20 +516,169 @@
                             </div>
                         )}
 
-                        {view === 'discover' && (
-                            <div className="animate-fade">
-                                <div className="mb-10 md:mb-20">
-                                    <h3 className="text-3xl md:text-5xl font-black serif italic tracking-tighter mb-2">Discovery.</h3>
-                                    <p className="text-stone-400 text-[10px] md:text-xs font-medium uppercase tracking-widest">在这里，邂逅思想的微光。</p>
+                        {/* 沉浸式编辑器：集成全部功能 */}
+                        {view === 'editor' && (
+                            <div className="fade-slide editor-container py-6">
+                                <header className="flex justify-between items-center mb-12 no-print">
+                                    <button onClick={() => setView('shelf')} className="text-[11px] font-black uppercase text-stone-400 active-scale flex items-center gap-2 hover:text-black transition-colors tracking-widest"><Icon name="arrow-left" /> Back</button>
+                                    <div className="flex gap-6 items-center">
+                                        <button onClick={() => handleSave()} className="bg-black dark:bg-white text-white dark:text-black px-8 py-2.5 rounded-full text-[10px] font-black uppercase active-scale shadow-lg">保存并返回</button>
+                                    </div>
+                                </header>
+
+                                <input className="text-5xl md:text-7xl font-black serif italic tracking-tighter w-full bg-transparent border-none outline-none mb-10 placeholder-stone-200" placeholder="Title." value={activeBook?.title || ''} onChange={e => setActiveBook({...activeBook, title: e.target.value})} />
+                                
+                                <div className="flex flex-col md:flex-row md:items-center gap-8 mb-12 border-b hairline pb-8 no-print">
+                                    <input className="text-sm font-medium uppercase text-stone-400 bg-transparent border-none outline-none w-full" placeholder="记录作者或思想来源" value={activeBook?.author || ''} onChange={e => setActiveBook({...activeBook, author: e.target.value})} />
+                                    <div className="flex gap-3 shrink-0 overflow-x-auto hide-scrollbar">
+                                        <label className="bg-stone-900 text-white dark:bg-white dark:text-black px-4 py-2 rounded-full active-scale text-[10px] font-black tracking-widest cursor-pointer flex items-center gap-1.5 shadow-md">
+                                            <Icon name="camera" /> 视觉扫描
+                                            <input type="file" accept="image/*" className="hidden" onChange={handleCameraOCR} disabled={isLoading} />
+                                        </label>
+                                        <button onClick={() => playTTS(activeBook?.content)} className="bg-stone-100 dark:bg-stone-800 px-3 py-2 rounded-full active-scale border hairline text-stone-600 dark:text-stone-300" title="语音导读"><Icon name="mic" /></button>
+                                        <button onClick={() => setIsPreviewMode(!isPreviewMode)} className={`px-4 py-2 rounded-full active-scale text-[10px] font-black tracking-widest border hairline ${isPreviewMode ? 'bg-amber-100 text-amber-800 border-amber-200' : 'bg-stone-100 dark:bg-stone-800'}`}>
+                                            <Icon name={isPreviewMode ? 'align-left' : 'book-open'} className="inline mr-1" /> {isPreviewMode ? '编辑模式' : '排版预览'}
+                                        </button>
+                                    </div>
                                 </div>
-                                <div className="discover-columns">
+
+                                <div className="flex gap-8 mb-8 border-b border-stone-100 dark:border-stone-800 no-print overflow-x-auto hide-scrollbar">
+                                    {['notes', 'quotes', 'labs', 'settings'].map(t => (
+                                        <button key={t} onClick={() => setTab(t)} className={`pb-3 text-[10px] font-black uppercase tracking-[0.2em] relative transition-all ${tab === t ? 'text-black dark:text-white' : 'text-stone-400 hover:text-stone-600'}`}>
+                                            {t === 'notes' ? '核心正文' : t === 'quotes' ? '金句海报' : t === 'labs' ? 'AI 实验室' : '书籍属性'}
+                                            {tab === t && <div className="absolute bottom-0 left-0 w-full h-px bg-black dark:bg-white"></div>}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {tab === 'notes' && (
+                                    <div className="relative">
+                                        {!isPreviewMode ? (
+                                            <textarea 
+                                                className="w-full min-h-[60vh] bg-transparent border-none outline-none text-xl md:text-2xl leading-[2.0] serif resize-none placeholder-stone-200 font-light text-stone-800 dark:text-stone-300" 
+                                                placeholder="万籁俱寂，笔尖划过纸张... 支持 # 标题, **加粗**, > 引用 等 Markdown 语法。" 
+                                                value={activeBook?.content || ''} 
+                                                onChange={e => setActiveBook({...activeBook, content: e.target.value})} 
+                                            />
+                                        ) : (
+                                            <div className="min-h-[60vh]" dangerouslySetInnerHTML={{ __html: parseMarkdown(activeBook?.content) }} />
+                                        )}
+                                    </div>
+                                )}
+
+                                {tab === 'quotes' && (
+                                    <div className="animate-fade">
+                                        <textarea 
+                                            className="w-full min-h-[40vh] bg-transparent border-none outline-none text-2xl md:text-3xl leading-[2] serif resize-none placeholder-stone-200 italic text-stone-700 dark:text-stone-400 text-center py-10" 
+                                            placeholder="摘录那些触动灵魂的文字..." 
+                                            value={activeBook?.quotes || ''} 
+                                            onChange={e => setActiveBook({...activeBook, quotes: e.target.value})} 
+                                        />
+                                        <div className="flex justify-center mt-10">
+                                            <button onClick={() => downloadPoster(activeBook?.quotes || activeBook?.content?.slice(0, 100), activeBook?.title, activeBook?.author, isDark)} className="bg-black text-white dark:bg-white dark:text-black px-10 py-4 rounded-full text-[10px] font-black uppercase tracking-[0.2em] active-scale flex items-center gap-2 shadow-2xl">
+                                                <Icon name="camera" /> 生成并下载精美海报
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {tab === 'settings' && (
+                                    <div className="animate-fade space-y-8 py-6">
+                                        <div className="bg-white dark:bg-stone-900 p-8 rounded-2xl border hairline">
+                                            <label className="block text-[10px] font-black uppercase tracking-widest text-stone-400 mb-6">阅读状态与评分</label>
+                                            <div className="flex flex-wrap gap-4 mb-8">
+                                                {['想读', '在读', '已读'].map(s => (
+                                                    <button key={s} onClick={() => setActiveBook({...activeBook, status: s})} className={`px-6 py-2 rounded-full text-[10px] font-bold border ${activeBook?.status === s ? 'bg-amber-100 border-amber-300 text-amber-800' : 'bg-stone-50 dark:bg-stone-800 border-stone-200 dark:border-stone-700 text-stone-500'}`}>{s}</button>
+                                                ))}
+                                            </div>
+                                            <div className="flex gap-2">
+                                                {[1,2,3,4,5].map(star => (
+                                                    <button key={star} onClick={() => setActiveBook({...activeBook, rating: star})} className="active-scale">
+                                                        <Icon name="star" className={`w-8 h-8 ${star <= (activeBook?.rating || 0) ? 'fill-amber-400 text-amber-400' : 'text-stone-200 dark:text-stone-800'}`} />
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="bg-white dark:bg-stone-900 p-8 rounded-2xl border hairline">
+                                            <label className="block text-[10px] font-black uppercase tracking-widest text-stone-400 mb-6 flex justify-between">
+                                                所属书单 (文件夹)
+                                                <button onClick={() => {
+                                                    const newFolder = prompt("请输入新书单名称：");
+                                                    if (newFolder) setActiveBook({...activeBook, folder: newFolder});
+                                                }} className="text-blue-500 hover:underline">新增书单</button>
+                                            </label>
+                                            <select value={activeBook?.folder || '默认书单'} onChange={(e) => setActiveBook({...activeBook, folder: e.target.value})} className="w-full px-4 py-3 rounded-xl bg-stone-50 dark:bg-stone-800 border hairline outline-none text-sm">
+                                                <option value="默认书单">默认书单</option>
+                                                {activeBook?.folder && activeBook.folder !== '默认书单' && <option value={activeBook.folder}>{activeBook.folder}</option>}
+                                                {/* 这里会列出已有文件夹 */}
+                                                {Array.from(new Set(books.map(b => b.folder).filter(Boolean))).filter(f => f !== '默认书单' && f !== activeBook?.folder).map(f => (
+                                                    <option key={f} value={f}>{f}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        <div className="bg-white dark:bg-stone-900 p-8 rounded-2xl border hairline flex items-center justify-between">
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-stone-400">广场分享</label>
+                                            <input type="checkbox" checked={activeBook?.isPublic || false} onChange={e => setActiveBook({...activeBook, isPublic: e.target.checked})} className="w-5 h-5 accent-black" />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {tab === 'labs' && (
+                                    <div className="animate-fade grid grid-cols-1 sm:grid-cols-2 gap-6 py-6">
+                                        <div className="col-span-full bg-gradient-to-br from-blue-50 to-white dark:from-blue-900/20 dark:to-stone-900 p-8 rounded-2xl border hairline mb-4">
+                                            <h4 className="text-[10px] font-black uppercase tracking-widest mb-6 flex items-center gap-2 text-blue-600"><Icon name="wand-2" /> Google AI 引擎</h4>
+                                            <button onClick={async () => {
+                                                setIsLoading(true);
+                                                const res = await callGoogleAI(activeBook.content, "你是一位顶尖的文学评论家。深度解析这段笔记，提炼核心并给出三个反思。");
+                                                setActiveBook(p => ({ ...p, content: (p.content || "") + "\n\n[ AI 深度析评 ]\n" + res }));
+                                                setIsLoading(false); showToast('析评已附加至笔记底部');
+                                            }} className="w-full bg-blue-600 text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest active-scale shadow-lg">深度解析笔记内容</button>
+                                        </div>
+                                        <button onClick={() => runLab('roadmap')} className="p-8 bg-white dark:bg-stone-900 rounded-2xl border hairline hover:border-black transition-all text-left">
+                                            <Icon name="map" className="mb-4 text-blue-500 w-6 h-6" />
+                                            <h5 className="font-bold text-lg mb-1">研学路径</h5>
+                                            <p className="text-[10px] text-stone-400">AI 为你定制 7 天计划</p>
+                                        </button>
+                                        <button onClick={() => runLab('flashcards')} className="p-8 bg-white dark:bg-stone-900 rounded-2xl border hairline hover:border-black transition-all text-left">
+                                            <Icon name="layers" className="mb-4 text-purple-500 w-6 h-6" />
+                                            <h5 className="font-bold text-lg mb-1">记忆卡片</h5>
+                                            <p className="text-[10px] text-stone-400">生成主动回想问答对</p>
+                                        </button>
+                                    </div>
+                                )}
+                                
+                                <div className="mt-20 py-16 border-t hairline flex justify-between items-center opacity-20 hover:opacity-100 transition-opacity no-print">
+                                    <button onClick={() => { if(confirm('抹除这部分记忆？')) { window.FirebaseSDK.deleteDoc(window.FirebaseSDK.doc(window.FirebaseSDK.getFirestore(), 'artifacts', appId, 'users', user.uid, 'books', activeBook.id)); setView('shelf'); } }} className="text-[10px] font-black uppercase text-red-500 tracking-widest hover:underline">销毁记录</button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 发现广场 */}
+                        {view === 'discover' && (
+                            <div className="max-w-7xl mx-auto px-6 md:px-12 fade-slide">
+                                <header className="mb-20 text-center">
+                                    <h3 className="text-5xl md:text-7xl font-black serif italic tracking-tighter mb-6">Discovery.</h3>
+                                    <p className="text-stone-400 text-[11px] font-bold uppercase tracking-[0.4em]">思想的广场，共鸣的回响。</p>
+                                </header>
+                                <div className="columns-1 md:columns-2 lg:columns-3 gap-8">
                                     {publicBooks.map(book => (
-                                        <div key={book.id} className="mb-6 md:mb-10 p-6 md:p-10 bg-white dark:bg-stone-900 border hairline break-inside-avoid shadow-sm">
-                                            <h4 className="text-lg md:text-2xl serif font-bold mb-3 italic">《{book.title}》</h4>
-                                            <p className="text-xs md:text-sm leading-relaxed text-stone-500 line-clamp-6 mb-6 serif">{book.content}</p>
-                                            <div className="pt-4 border-t border-stone-50 dark:border-stone-800 flex justify-between items-center">
-                                                <span className="text-[8px] font-black text-stone-300 uppercase">CONTRIBUTOR #{book.userId?.slice(-4)}</span>
-                                                <Icon name="heart" className="text-stone-200" />
+                                        <div key={book.id} className="mb-8 p-10 bg-white dark:bg-stone-900 hairline rounded-lg break-inside-avoid shadow-sm hover:shadow-xl transition-all duration-500">
+                                            <div className="flex items-center gap-3 mb-8 opacity-30 text-[9px] font-black uppercase">
+                                                <div className="w-6 h-6 bg-stone-100 dark:bg-stone-800 rounded-full flex items-center justify-center">?</div>
+                                                <span>User #{book.userId?.slice(-4)}</span>
+                                            </div>
+                                            <h4 className="text-2xl serif font-bold mb-6 italic">《{book.title}》</h4>
+                                            <p className="text-sm leading-[2.2] text-stone-500 line-clamp-6 mb-8 serif">{book.content}</p>
+                                            <div className="pt-6 border-t border-stone-50 dark:border-stone-800 flex justify-between items-center text-[9px] font-black text-stone-400">
+                                                <span>{new Date(book.updatedAt).toLocaleDateString()}</span>
+                                                <button onClick={async (e) => {
+                                                    e.stopPropagation();
+                                                    await window.FirebaseSDK.updateDoc(window.FirebaseSDK.doc(window.FirebaseSDK.getFirestore(), 'artifacts', appId, 'public', 'data', 'shared_books', book.id), { likes: window.FirebaseSDK.increment(1) });
+                                                }} className="flex items-center gap-1.5 hover:text-red-500 transition-colors bg-stone-50 dark:bg-stone-800 px-3 py-1 rounded-full">
+                                                    <Icon name="heart" className="w-3 h-3" /> {book.likes || 0}
+                                                </button>
                                             </div>
                                         </div>
                                     ))}
@@ -322,66 +686,61 @@
                             </div>
                         )}
 
-                        {view === 'editor' && (
-                            <div className="animate-fade max-w-2xl mx-auto">
-                                <header className="flex justify-between items-center mb-10">
-                                    <button onClick={() => setView('shelf')} className="text-[10px] font-black uppercase text-stone-400 active-scale flex items-center gap-1"><Icon name="arrow-left" /> 返回</button>
-                                    <div className="flex gap-4 items-center">
-                                        <label className="flex items-center gap-2 cursor-pointer text-stone-300">
-                                            <input type="checkbox" checked={activeBook.isPublic} onChange={e => setActiveBook({...activeBook, isPublic: e.target.checked})} className="w-3 h-3 accent-black" />
-                                            <span className="text-[9px] font-black uppercase">公开同步</span>
-                                        </label>
-                                        <button onClick={handleSave} className="bg-black dark:bg-white text-white dark:text-black px-6 py-2 rounded-full text-[10px] font-black uppercase active-scale">存证</button>
-                                    </div>
-                                </header>
-                                <input className="text-4xl md:text-6xl font-black serif italic tracking-tighter w-full bg-transparent border-none outline-none mb-8" placeholder="Title." value={activeBook.title} onChange={e => setActiveBook({...activeBook, title: e.target.value})} />
-                                <div className="flex items-center gap-4 mb-10 border-b hairline pb-4">
-                                    <input className="text-xs font-medium uppercase text-stone-400 bg-transparent border-none outline-none w-full" placeholder="Author" value={activeBook.author} onChange={e => setActiveBook({...activeBook, author: e.target.value})} />
-                                    <button onClick={handleAiAnalysis} disabled={isLoading} className="shrink-0 text-[9px] font-black uppercase border-b border-black active-scale opacity-50">
-                                        {isLoading ? '...' : '深度析评'}
-                                    </button>
-                                </div>
-                                <textarea className="w-full h-[60vh] bg-transparent border-none outline-none text-lg leading-[1.8] serif resize-none placeholder-stone-200" placeholder="在此落笔..." value={activeBook.content} onChange={e => setActiveBook({...activeBook, content: e.target.value})} />
-                                <div className="mt-10 py-6 border-t hairline flex justify-between">
-                                    <button onClick={() => { if(confirm('确定销毁？')) { window.FirebaseSDK.deleteDoc(window.FirebaseSDK.doc(window.FirebaseSDK.getFirestore(), 'artifacts', appId, 'users', user.uid, 'books', activeBook.id)); setView('shelf'); } }} className="text-[9px] font-black uppercase text-red-300">销毁档案</button>
-                                    <span className="text-[8px] font-bold text-stone-200 uppercase">PRO MAX Edition</span>
-                                </div>
-                            </div>
-                        )}
-                        
+                        {/* 数据足迹视图 */}
                         {view === 'stats' && (
-                            <div className="animate-fade">
-                                <h3 className="text-3xl md:text-5xl font-black serif italic mb-10">Metrics.</h3>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10 text-center">
-                                    <div className="p-8 border hairline rounded-3xl">
-                                        <p className="text-[10px] font-black uppercase text-stone-400 mb-2">Collections</p>
-                                        <p className="text-5xl font-black serif italic">{books.length}</p>
+                            <div className="max-w-5xl mx-auto px-6 md:px-12 fade-slide text-center">
+                                <h3 className="text-6xl md:text-8xl font-black serif italic tracking-tighter mb-24">Metrics.</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
+                                    <div className="p-12 border hairline rounded-3xl bg-white dark:bg-stone-900">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-6">存档条目</p>
+                                        <p className="text-7xl font-black serif italic">{books.length}</p>
                                     </div>
-                                    <div className="p-8 border hairline rounded-3xl">
-                                        <p className="text-[10px] font-black uppercase text-stone-400 mb-2">Total Words</p>
-                                        <p className="text-5xl font-black serif italic">{books.reduce((a, b) => a + (b.content?.length || 0), 0)}</p>
+                                    <div className="p-12 border hairline rounded-3xl bg-white dark:bg-stone-900">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-stone-400 mb-6">记录字数</p>
+                                        <p className="text-7xl font-black serif italic">{books.reduce((a,b)=>a+((b.content?.length||0)+(b.quotes?.length||0)),0)}</p>
                                     </div>
-                                    <div className="p-8 bg-black text-white dark:bg-white dark:text-black rounded-3xl">
-                                        <p className="text-[10px] font-black uppercase opacity-50 mb-2">Global Rank</p>
-                                        <p className="text-5xl font-black serif italic">Top 1%</p>
+                                    <div className="p-12 bg-black text-white dark:bg-white dark:text-black rounded-3xl shadow-2xl">
+                                        <p className="text-[10px] font-black uppercase tracking-widest opacity-40 mb-6">思想位阶</p>
+                                        <p className="text-7xl font-black serif italic">Top 1%</p>
                                     </div>
                                 </div>
-                                <div className="p-8 border hairline rounded-[2.5rem]">
-                                    <h5 className="text-[9px] font-black uppercase text-stone-400 mb-8 flex items-center gap-2"><Icon name="activity" /> 脑力活跃矩阵</h5>
-                                    <div className="flex flex-wrap gap-2">
-                                        {heatmapData.map((count, i) => (
-                                            <div key={i} className={`w-3.5 h-3.5 rounded-sm ${count >= 3 ? 'heat-3' : count >= 2 ? 'heat-2' : count >= 1 ? 'heat-1' : 'heat-0'}`}></div>
-                                        ))}
+                                <div className="p-12 border hairline rounded-[3rem] bg-white/40 dark:bg-stone-900/40">
+                                    <h5 className="text-[11px] font-black uppercase tracking-widest text-stone-400 mb-12 flex items-center justify-center gap-3">
+                                        <Icon name="activity" className="w-3 h-3" /> 脑力活跃矩阵 (近 90 天记录)
+                                    </h5>
+                                    <div className="flex flex-wrap gap-2 justify-center max-w-2xl mx-auto">
+                                        {Array.from({length: 90}).map((_, i) => {
+                                            // 计算热力值 (基于真实数据)
+                                            const d = new Date(); d.setDate(d.getDate() - (89 - i));
+                                            const dStr = d.toISOString().split('T')[0];
+                                            let count = 0;
+                                            books.forEach(b => {
+                                                if(b.updatedAt && new Date(b.updatedAt).toISOString().split('T')[0] === dStr) count++;
+                                            });
+                                            const level = count >= 3 ? 'bg-black dark:bg-white shadow-md' : count === 2 ? 'bg-stone-600 dark:bg-stone-400' : count === 1 ? 'bg-stone-300 dark:bg-stone-700' : 'bg-stone-100 dark:bg-stone-900 border hairline';
+                                            return <div key={i} title={`${dStr}: ${count} 次记录`} className={`w-4 h-4 sm:w-5 sm:h-5 rounded-xs transition-all duration-500 ${level}`}></div>
+                                        })}
+                                    </div>
+                                    <div className="mt-10 flex justify-center items-center gap-2 text-[9px] font-bold text-stone-400 uppercase tracking-widest">
+                                        <span>少</span>
+                                        <div className="w-3 h-3 rounded-xs bg-stone-100 dark:bg-stone-900 border hairline"></div>
+                                        <div className="w-3 h-3 rounded-xs bg-stone-300 dark:bg-stone-700"></div>
+                                        <div className="w-3 h-3 rounded-xs bg-stone-600 dark:bg-stone-400"></div>
+                                        <div className="w-3 h-3 rounded-xs bg-black dark:bg-white"></div>
+                                        <span>多</span>
                                     </div>
                                 </div>
                             </div>
                         )}
                     </main>
 
-                    {/* 悬浮工具 */}
-                    <div className="fixed bottom-20 sm:bottom-10 right-6 z-[100] flex flex-col gap-4 no-print">
-                        <button onClick={() => window.print()} className="w-12 h-12 glass-mobile hairline rounded-full flex items-center justify-center active-scale shadow-lg"><Icon name="printer" /></button>
-                    </div>
+                    {isLoading && (
+                        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[100] fade-slide">
+                            <div className="bg-black/90 text-white px-8 py-3 rounded-full flex items-center shadow-2xl text-xs font-bold uppercase tracking-widest">
+                                <Icon name="loader" className="loader-spin w-4 h-4 mr-3" /> 处理中，请稍候...
+                            </div>
+                        </div>
+                    )}
                 </div>
             );
         }
